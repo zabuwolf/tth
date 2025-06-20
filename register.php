@@ -9,10 +9,6 @@ unset($_SESSION['form_errors']);
 $old_input = $_SESSION['old_form_input'] ?? [];
 unset($_SESSION['old_form_input']);
 
-// Lấy thông báo thành công chung (nếu có, mặc dù ít khi dùng ở trang register sau khi có lỗi)
-// $success_message = $_SESSION['success_message'] ?? '';
-// unset($_SESSION['success_message']);
-
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -170,6 +166,16 @@ unset($_SESSION['old_form_input']);
             </div>
 
             <div>
+                <label for="school_name" class="block text-sm font-medium text-gray-700 mb-1.5">Tên trường học (Tùy chọn)</label>
+                <input type="text" id="school_name" name="school_name"
+                       class="form-input <?php echo isset($errors['school_name']) ? 'is-invalid' : ''; ?>"
+                       placeholder="Ví dụ: Tiểu học Kim Đồng"
+                       value="<?php echo htmlspecialchars($old_input['school_name'] ?? ''); ?>">
+                <?php if (isset($errors['school_name'])): ?>
+                    <div class="invalid-feedback"><?php echo htmlspecialchars($errors['school_name']); ?></div>
+                <?php endif; ?>
+            </div>
+            <div>
                 <label for="password_register" class="block text-sm font-medium text-gray-700 mb-1.5">Mật khẩu</label>
                 <input type="password" id="password_register" name="password" required
                        class="form-input <?php echo isset($errors['password']) ? 'is-invalid' : ''; ?>"
@@ -189,6 +195,10 @@ unset($_SESSION['old_form_input']);
                 <?php endif; ?>
             </div>
 
+            <div style="position: absolute; left: -5000px;" aria-hidden="true">
+                <label for="website_url_check">Vui lòng không điền vào trường này:</label>
+                <input type="text" id="website_url_check" name="website_url_check" tabindex="-1" autocomplete="off" value="">
+            </div>
             <div class="pt-2">
                 <button type="submit" class="btn-submit-register">
                     Đăng Ký

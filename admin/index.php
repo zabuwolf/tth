@@ -4,62 +4,63 @@ require_once '../config/db_config.php'; // Đi ra một cấp để vào config
 
 // Kiểm tra xem admin đã đăng nhập chưa
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    $_SESSION['admin_login_error'] = "Vui lòng đăng nhập để truy cập trang quản trị.";
-    header('Location: admin_login.php');
+    $_SESSION['login_errors'] = ['general' => "Vui lòng đăng nhập với quyền quản trị để truy cập."]; // Sử dụng key lỗi chung
+    header('Location: ../login.php'); // Chuyển hướng ra trang login.php ở thư mục gốc
     exit;
 }
 
-$admin_fullname = $_SESSION['admin_fullname'] ?? $_SESSION['admin_username'] ?? 'Admin';
+$admin_fullname = $_SESSION['admin_fullname'] ?? $_SESSION['admin_username'] ?? 'Admin'; //
+$page_title = "Dashboard Tổng Quan"; // Dành cho header.php
 
 // Kết nối CSDL
-$conn = connect_db();
-if (!$conn) {
-    error_log("Lỗi kết nối CSDL trên trang admin/index.php: " . ($conn->connect_error ?? 'Unknown error'));
-    $dashboard_error = "Lỗi nghiêm trọng: Không thể kết nối đến cơ sở dữ liệu để tải dữ liệu dashboard.";
+$conn = connect_db(); //
+if (!$conn) { //
+    error_log("Lỗi kết nối CSDL trên trang admin/index.php: " . ($conn->connect_error ?? 'Unknown error')); //
+    $dashboard_error = "Lỗi nghiêm trọng: Không thể kết nối đến cơ sở dữ liệu để tải dữ liệu dashboard."; //
 }
 
 // Khởi tạo các biến thống kê
-$total_users = 'N/A';
-$total_questions = 'N/A';
-$sessions_today = 'N/A';
-$recent_activities = [];
-$top_players = [];
+$total_users = 'N/A'; //
+$total_questions = 'N/A'; //
+$sessions_today = 'N/A'; //
+$recent_activities = []; //
+$top_players = []; //
 
 if ($conn) { // Chỉ thực hiện truy vấn nếu kết nối CSDL thành công
     // 1. Lấy tổng số người dùng (không phải admin)
-    $sql_total_users = "SELECT COUNT(*) as count FROM users WHERE is_admin = FALSE";
-    $result_total_users = $conn->query($sql_total_users);
-    if ($result_total_users) {
-        $total_users = $result_total_users->fetch_assoc()['count'];
-        $result_total_users->free();
+    $sql_total_users = "SELECT COUNT(*) as count FROM users WHERE is_admin = FALSE"; //
+    $result_total_users = $conn->query($sql_total_users); //
+    if ($result_total_users) { //
+        $total_users = $result_total_users->fetch_assoc()['count']; //
+        $result_total_users->free(); //
     } else {
-        error_log("Lỗi truy vấn tổng số người dùng: " . $conn->error);
+        error_log("Lỗi truy vấn tổng số người dùng: " . $conn->error); //
     }
 
     // 2. Lấy tổng số câu hỏi
-    $sql_total_questions = "SELECT COUNT(*) as count FROM questions";
-    $result_total_questions = $conn->query($sql_total_questions);
-    if ($result_total_questions) {
-        $total_questions = $result_total_questions->fetch_assoc()['count'];
-        $result_total_questions->free();
+    $sql_total_questions = "SELECT COUNT(*) as count FROM questions"; //
+    $result_total_questions = $conn->query($sql_total_questions); //
+    if ($result_total_questions) { //
+        $total_questions = $result_total_questions->fetch_assoc()['count']; //
+        $result_total_questions->free(); //
     } else {
-        error_log("Lỗi truy vấn tổng số câu hỏi: " . $conn->error);
+        error_log("Lỗi truy vấn tổng số câu hỏi: " . $conn->error); //
     }
 
     // 3. Lấy số lượt chơi hôm nay
-    $today_date_sql = date("Y-m-d");
-    $sql_sessions_today = "SELECT COUNT(*) as count FROM game_sessions WHERE DATE(start_time) = ?";
-    $stmt_sessions = $conn->prepare($sql_sessions_today);
-    if ($stmt_sessions) {
-        $stmt_sessions->bind_param("s", $today_date_sql);
-        $stmt_sessions->execute();
-        $result_sessions = $stmt_sessions->get_result();
-        if ($result_sessions) {
-            $sessions_today = $result_sessions->fetch_assoc()['count'];
+    $today_date_sql = date("Y-m-d"); //
+    $sql_sessions_today = "SELECT COUNT(*) as count FROM game_sessions WHERE DATE(start_time) = ?"; //
+    $stmt_sessions = $conn->prepare($sql_sessions_today); //
+    if ($stmt_sessions) { //
+        $stmt_sessions->bind_param("s", $today_date_sql); //
+        $stmt_sessions->execute(); //
+        $result_sessions = $stmt_sessions->get_result(); //
+        if ($result_sessions) { //
+            $sessions_today = $result_sessions->fetch_assoc()['count']; //
         }
-        $stmt_sessions->close();
+        $stmt_sessions->close(); //
     } else {
-        error_log("Lỗi chuẩn bị truy vấn lượt chơi hôm nay: " . $conn->error);
+        error_log("Lỗi chuẩn bị truy vấn lượt chơi hôm nay: " . $conn->error); //
     }
 
     // 4. Lấy 10 hoạt động gần đây (game sessions)
@@ -73,14 +74,14 @@ if ($conn) { // Chỉ thực hiện truy vấn nếu kết nối CSDL thành cô
                               LEFT JOIN characters c ON gs.character_id = c.id
                               ORDER BY gs.start_time DESC
                               LIMIT 10"; // Giữ nguyên giới hạn 10 cho dashboard
-    $result_activities = $conn->query($sql_recent_activities);
-    if ($result_activities) {
-        while ($row = $result_activities->fetch_assoc()) {
-            $recent_activities[] = $row;
+    $result_activities = $conn->query($sql_recent_activities); //
+    if ($result_activities) { //
+        while ($row = $result_activities->fetch_assoc()) { //
+            $recent_activities[] = $row; //
         }
-        $result_activities->free();
+        $result_activities->free(); //
     } else {
-        error_log("Lỗi truy vấn hoạt động gần đây: " . $conn->error);
+        error_log("Lỗi truy vấn hoạt động gần đây: " . $conn->error); //
     }
 
     // 5. Lấy top 3 người chơi có điểm cao nhất
@@ -88,15 +89,15 @@ if ($conn) { // Chỉ thực hiện truy vấn nếu kết nối CSDL thành cô
                         FROM users 
                         WHERE is_admin = FALSE AND points > 0
                         ORDER BY points DESC 
-                        LIMIT 3";
-    $result_top_players = $conn->query($sql_top_players);
-    if ($result_top_players) {
-        while ($row = $result_top_players->fetch_assoc()) {
-            $top_players[] = $row;
+                        LIMIT 3"; //
+    $result_top_players = $conn->query($sql_top_players); //
+    if ($result_top_players) { //
+        while ($row = $result_top_players->fetch_assoc()) { //
+            $top_players[] = $row; //
         }
-        $result_top_players->free();
+        $result_top_players->free(); //
     } else {
-        error_log("Lỗi truy vấn top người chơi: " . $conn->error);
+        error_log("Lỗi truy vấn top người chơi: " . $conn->error); //
     }
 }
 
@@ -125,56 +126,15 @@ if ($conn) { // Chỉ thực hiện truy vấn nếu kết nối CSDL thành cô
 </head>
 <body class="flex h-screen">
 
-    <aside class="sidebar w-64 min-h-screen p-4 space-y-2">
-        <div class="text-center py-4">
-            <a href="index.php" class="font-baloo text-2xl font-bold text-white">Admin Panel</a>
-        </div>
-        <nav>
-            <a href="index.php" class="block py-2.5 px-4 rounded active">
-                <i class="fas fa-tachometer-alt mr-2"></i>Dashboard
-            </a>
-            <a href="manage_questions.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-question-circle mr-2"></i>Quản lý Câu hỏi
-            </a>
-            <a href="manage_users.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-users mr-2"></i>Quản lý Người dùng
-            </a>
-            <a href="manage_characters.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-user-astronaut mr-2"></i>Quản lý Nhân vật
-            </a>
-            <a href="manage_topics.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-book-open mr-2"></i>Quản lý Chủ đề
-            </a>
-            <a href="manage_grades.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-graduation-cap mr-2"></i>Quản lý Khối lớp
-            </a>
-            <a href="manage_badges.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-medal mr-2"></i>Quản lý Huy hiệu
-            </a>
-            <a href="settings.php" class="block py-2.5 px-4 rounded">
-                <i class="fas fa-cog mr-2"></i>Cài đặt chung
-            </a>
-            <a href="view_activity_logs.php" class="block py-2.5 px-4 rounded"> 
-                <i class="fas fa-clipboard-list mr-2"></i>Xem Log Hoạt Động
-            </a>
-        </nav>
-    </aside>
+    <?php include_once __DIR__ . '/includes/sidebar.php'; ?>
 
     <div class="flex-1 flex flex-col">
-        <header class="admin-header p-4 shadow-md flex justify-between items-center">
-            <div>
-                <h1 class="text-xl font-semibold">Chào mừng, <?php echo htmlspecialchars($admin_fullname); ?>!</h1>
-            </div>
-            <div>
-                <a href="admin_logout.php" class="text-sm hover:text-indigo-200">
-                    <i class="fas fa-sign-out-alt mr-1"></i>Đăng xuất
-                </a>
-            </div>
-        </header>
+        <?php 
+        // $page_title đã được đặt ở trên
+        include_once __DIR__ . '/includes/header.php'; 
+        ?>
 
         <main class="flex-1 p-6 overflow-y-auto">
-            <h2 class="text-2xl font-semibold text-gray-700 mb-6">Dashboard Tổng Quan</h2>
-            
             <?php if (isset($dashboard_error)): ?>
                 <div class="bg-red-100 border-l-4 border-red-500 text-red-700 p-4 mb-6" role="alert">
                     <p class="font-bold">Lỗi!</p>
@@ -289,7 +249,13 @@ if ($conn) { // Chỉ thực hiện truy vấn nếu kết nối CSDL thành cô
                      <?php if (!empty($top_players)): ?>
                         <ul class="space-y-3">
                             <?php foreach($top_players as $index => $player): 
-                                $player_avatar = $player['avatar_url'] ?? 'https://placehold.co/40x40/cccccc/757575?text=' . strtoupper(substr($player['fullname'],0,1));
+                                $player_avatar = $player['avatar_url'] ? '../' . ltrim($player['avatar_url'], '/') : 'https://placehold.co/40x40/cccccc/757575?text=' . strtoupper(substr($player['fullname'],0,1));
+                                // Chỉnh sửa đường dẫn avatar cho đúng nếu nó là tương đối
+                                if ($player['avatar_url'] && strpos($player['avatar_url'], 'http') !== 0 && strpos($player['avatar_url'], 'assets/') === 0) {
+                                    $player_avatar = '../' . $player['avatar_url'];
+                                } elseif ($player['avatar_url'] && strpos($player['avatar_url'], 'http') === 0) {
+                                    $player_avatar = $player['avatar_url'];
+                                }
                             ?>
                             <li class="player-rank-item border-b border-gray-100 pb-2 last:border-b-0 last:pb-0">
                                 <span class="font-bold text-indigo-600 w-10 text-lg text-center"><?php echo $index + 1; ?>.</span>
@@ -307,12 +273,11 @@ if ($conn) { // Chỉ thực hiện truy vấn nếu kết nối CSDL thành cô
                     <?php endif; ?>
                 </div>
             </div>
-
         </main>
     </div>
     <?php
-    if ($conn) {
-        close_db_connection($conn);
+    if ($conn) { //
+        close_db_connection($conn); //
     }
     ?>
 </body>

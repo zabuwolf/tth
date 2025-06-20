@@ -1,435 +1,360 @@
 <?php
-// File: admin/edit_user.php (Giả sử nằm trong thư mục admin)
-// Nhiệm vụ: Cho phép người dùng chỉnh sửa thông tin cá nhân (bao gồm mật khẩu)
-// và cho phép admin chỉnh sửa thông tin của người dùng khác.
+/**
+ * File: admin/edit_user.php
+ * Chức năng: Cho phép admin chỉnh sửa thông tin người dùng (bao gồm cả mật khẩu và quyền admin).
+ * Cải tiến: Tăng cường bảo mật với CSRF token, cấu trúc lại logic, cải thiện xử lý lỗi và trải nghiệm người dùng.
+ */
 
+// 1. KHỞI TẠO & KIỂM TRA BẢO MẬT
+// ==========================================
+
+// Bắt đầu session nếu chưa tồn tại
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
 
-// Điều chỉnh đường dẫn cho require_once nếu file này nằm trong thư mục con 'admin'
-// và thư mục 'config' nằm ở thư mục gốc (ngang hàng với 'admin')
-require_once '../config/db_config.php'; // ĐÃ THAY ĐỔI ĐƯỜNG DẪN
+// Tải file cấu hình CSDL
+// Đường dẫn này giả định `edit_user.php` nằm trong thư mục `admin` và `config` nằm ở thư mục gốc.
+require_once __DIR__ . '/../config/db_config.php';
 
-// Kiểm tra đăng nhập (logic này có thể cần điều chỉnh nếu session admin của bạn khác)
-// Mã hiện tại dùng $_SESSION['logged_in'] và $_SESSION['is_admin']
-// Nếu trang admin của bạn dùng session riêng như $_SESSION['admin_logged_in'],
-// bạn cần thay thế logic kiểm tra đăng nhập cho phù hợp.
-if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || !isset($_SESSION['user_id'])) {
-    // Nếu không phải admin hoặc không đăng nhập, có thể chuyển hướng về trang login của admin hoặc trang chính
-    $_SESSION['error_message'] = "Vui lòng đăng nhập với quyền quản trị để truy cập.";
-    header('Location: ../login.php'); // Hoặc admin_login.php nếu có
-    exit;
-}
-if (!isset($_SESSION['is_admin']) || $_SESSION['is_admin'] !== true) {
-    $_SESSION['error_message'] = "Bạn không có quyền truy cập trang này.";
-    header('Location: ../dashboard.php'); // Hoặc trang chính của người dùng
+// Kiểm tra quyền truy cập: người dùng phải đăng nhập và là admin
+if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || !isset($_SESSION['is_admin']) || $_SESSION['is_admin'] !== true) {
+    $_SESSION['login_errors'] = ['general' => "Bạn không có quyền truy cập trang này. Vui lòng đăng nhập với tài khoản admin."];
+    header('Location: ../login.php');
     exit;
 }
 
-
+// Kết nối CSDL
 $conn = connect_db();
 if ($conn === null) {
-    $_SESSION['error_message'] = "Lỗi kết nối cơ sở dữ liệu.";
-    // Chuyển hướng đến trang dashboard của admin nếu có, hoặc trang lỗi
-    header('Location: index.php'); // Giả sử admin có trang index.php riêng
-    exit;
+    // Nếu không kết nối được CSDL, nên có một trang lỗi riêng thay vì chuyển hướng lung tung.
+    // Ở đây, tạm thời hiển thị thông báo và dừng lại.
+    die("Lỗi nghiêm trọng: Không thể kết nối đến Cơ sở dữ liệu.");
 }
 
-$current_logged_in_user_id = (int)$_SESSION['user_id']; // ID của admin đang đăng nhập
-$is_current_user_admin = true; // Đã xác thực là admin ở trên
+// 2. XÁC ĐỊNH NGƯỜI DÙNG & BIẾN LOGIC
+// ========================================
 
-// Xác định user_id cần chỉnh sửa
-$user_id_to_edit = null; 
+$current_admin_id = (int)$_SESSION['user_id'];
+$user_id_to_edit = 0;
 $is_editing_self = false;
 
+// Lấy ID người dùng cần sửa từ URL.
 if (isset($_GET['id']) && is_numeric($_GET['id'])) {
     $user_id_to_edit = (int)$_GET['id'];
-    if ($user_id_to_edit === $current_logged_in_user_id) {
-        $is_editing_self = true;
-    }
-} else if (strpos($_SERVER['REQUEST_URI'], 'edit_user.php') !== false && !isset($_GET['id'])) {
-    // Nếu admin truy cập edit_user.php mà không có id, mặc định là sửa chính mình
-    // Điều này hữu ích nếu admin có link "Sửa hồ sơ của tôi" trỏ đến edit_user.php không có tham số id
-    $user_id_to_edit = $current_logged_in_user_id;
+} else {
+    // Nếu không có ID, mặc định admin đang sửa hồ sơ của chính mình
+    $user_id_to_edit = $current_admin_id;
+}
+
+if ($user_id_to_edit === $current_admin_id) {
     $is_editing_self = true;
 }
 
-
-if ($user_id_to_edit === null) {
-    $_SESSION['error_message_admin'] = "Không có ID người dùng được cung cấp để sửa."; // Sử dụng session error của admin
-    header('Location: manage_users.php'); // Trang quản lý người dùng của admin
-    exit;
-}
-
-
-// Lấy thông tin người dùng cần chỉnh sửa
-// Đảm bảo chọn cột password_hash (hoặc tên cột mật khẩu đúng trong CSDL của bạn)
-$sql_get_user = "SELECT id, username, email, fullname, avatar_url, is_admin, password_hash 
-                 FROM users 
-                 WHERE id = ? LIMIT 1";
-$stmt_get_user = $conn->prepare($sql_get_user);
-$user_to_edit = null; 
-
-if ($stmt_get_user) {
-    $stmt_get_user->bind_param("i", $user_id_to_edit);
-    $stmt_get_user->execute();
-    $result_user = $stmt_get_user->get_result();
-    if ($result_user->num_rows === 1) {
-        $user_to_edit = $result_user->fetch_assoc();
-    } else {
-        $_SESSION['error_message_admin'] = "Không tìm thấy người dùng với ID: {$user_id_to_edit}";
-        header('Location: manage_users.php');
-        exit;
-    }
-    $stmt_get_user->close();
-} else {
-    error_log("Lỗi chuẩn bị SQL (get_user_to_edit) trong admin/edit_user.php: " . $conn->error);
-    $_SESSION['error_message_admin'] = "Lỗi hệ thống khi truy vấn thông tin người dùng.";
+// Nếu không xác định được ID để sửa, chuyển hướng về trang quản lý
+if ($user_id_to_edit <= 0) {
+    $_SESSION['error_message_admin'] = "ID người dùng không hợp lệ.";
     header('Location: manage_users.php');
     exit;
 }
 
-// Xử lý khi form được gửi đi (POST request)
-$success_message = '';
-$form_errors = []; // Sử dụng mảng này để chứa lỗi cụ thể cho từng trường
 
-// Kiểm tra xem có lỗi từ lần submit trước không (nếu dùng redirect để hiển thị lỗi)
-if(isset($_SESSION['form_errors_admin_edit'])) {
-    $form_errors = $_SESSION['form_errors_admin_edit'];
-    unset($_SESSION['form_errors_admin_edit']);
-}
-if(isset($_SESSION['old_form_input_admin_edit'])) {
-    // Điền lại form với dữ liệu cũ nếu có lỗi
-    $user_to_edit['fullname'] = $_SESSION['old_form_input_admin_edit']['fullname'] ?? $user_to_edit['fullname'];
-    $user_to_edit['email'] = $_SESSION['old_form_input_admin_edit']['email'] ?? $user_to_edit['email'];
-    $user_to_edit['avatar_url'] = $_SESSION['old_form_input_admin_edit']['avatar_url'] ?? $user_to_edit['avatar_url'];
-    // is_admin sẽ được xử lý riêng
-    unset($_SESSION['old_form_input_admin_edit']);
-}
-
-
+// 3. XỬ LÝ KHI FORM ĐƯỢC GỬI (HTTP POST)
+// ==========================================
 if ($_SERVER["REQUEST_METHOD"] == "POST") {
-    $posted_user_id = isset($_POST['user_id_to_edit_field']) ? (int)$_POST['user_id_to_edit_field'] : 0;
-    if ($posted_user_id !== $user_id_to_edit) {
-        $form_errors['general'] = "Lỗi xác thực form. ID không khớp.";
-    } else {
-        $fullname_input = trim($_POST['fullname'] ?? '');
-        $email_input = trim($_POST['email'] ?? '');
-        $avatar_url_input = trim($_POST['avatar_url'] ?? '');
-        $current_password_input = $_POST['current_password'] ?? ''; // Chỉ cần nếu admin tự đổi pass và có yêu cầu pass cũ
-        $new_password_input = $_POST['new_password'] ?? '';
-        $confirm_password_input = $_POST['confirm_password'] ?? '';
-        $is_admin_from_form = isset($_POST['is_admin']) ? 1 : 0;
+    // --- 3.1. Xác thực CSRF Token ---
+    if (!isset($_POST['csrf_token']) || !hash_equals($_SESSION['csrf_token'], $_POST['csrf_token'])) {
+        $_SESSION['form_errors_admin_edit'] = ['general' => 'Lỗi xác thực form không hợp lệ. Vui lòng thử lại.'];
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?id=' . $user_id_to_edit);
+        exit;
+    }
+    // Xóa token sau khi dùng
+    unset($_SESSION['csrf_token']);
 
-        if (empty($fullname_input)) {
-            $form_errors['fullname'] = "Họ tên không được để trống.";
+
+    // --- 3.2. Lấy dữ liệu từ Form ---
+    $fullname = trim($_POST['fullname'] ?? '');
+    $email = trim($_POST['email'] ?? '');
+    $avatar_url = trim($_POST['avatar_url'] ?? '');
+    $new_password = $_POST['new_password'] ?? '';
+    $confirm_password = $_POST['confirm_password'] ?? '';
+    // Chỉ admin mới có thể thay đổi quyền, và không thể tự thay đổi cho chính mình
+    $is_admin_from_form = (!$is_editing_self && isset($_POST['is_admin'])) ? 1 : 0;
+    
+    $form_errors = [];
+
+    // Lấy thông tin hiện tại của người dùng để so sánh
+    $stmt_get_user_for_validation = $conn->prepare("SELECT email, password_hash, is_admin FROM users WHERE id = ?");
+    $stmt_get_user_for_validation->bind_param("i", $user_id_to_edit);
+    $stmt_get_user_for_validation->execute();
+    $user_current_data = $stmt_get_user_for_validation->get_result()->fetch_assoc();
+    $stmt_get_user_for_validation->close();
+    
+    // --- 3.3. Validate dữ liệu ---
+    if (empty($fullname)) {
+        $form_errors['fullname'] = "Họ tên không được để trống.";
+    }
+
+    if (empty($email)) {
+        $form_errors['email'] = "Email không được để trống.";
+    } elseif (!filter_var($email, FILTER_VALIDATE_EMAIL)) {
+        $form_errors['email'] = "Địa chỉ email không hợp lệ.";
+    } elseif ($email !== $user_current_data['email']) {
+        // Kiểm tra email đã tồn tại chưa nếu người dùng thay đổi email
+        $stmt_check_email = $conn->prepare("SELECT id FROM users WHERE email = ? AND id != ?");
+        $stmt_check_email->bind_param("si", $email, $user_id_to_edit);
+        $stmt_check_email->execute();
+        if ($stmt_check_email->get_result()->num_rows > 0) {
+            $form_errors['email'] = "Địa chỉ email này đã được sử dụng.";
         }
-        if (empty($email_input)) {
-             $form_errors['email'] = "Email không được để trống.";
-        } elseif (!filter_var($email_input, FILTER_VALIDATE_EMAIL)) {
-            $form_errors['email'] = "Địa chỉ email không hợp lệ.";
+        $stmt_check_email->close();
+    }
+    
+    // --- 3.4. Validate mật khẩu (nếu có thay đổi) ---
+    $new_password_hashed = null;
+    if (!empty($new_password)) {
+        if (strlen($new_password) < 6) {
+            $form_errors['new_password'] = "Mật khẩu mới phải có ít nhất 6 ký tự.";
         }
-        
-        if ($email_input !== $user_to_edit['email']) {
-            $sql_check_email = "SELECT id FROM users WHERE email = ? AND id != ? LIMIT 1";
-            $stmt_check_email = $conn->prepare($sql_check_email);
-            if ($stmt_check_email) {
-                $stmt_check_email->bind_param("si", $email_input, $user_id_to_edit);
-                $stmt_check_email->execute();
-                if ($stmt_check_email->get_result()->num_rows > 0) {
-                    $form_errors['email'] = "Địa chỉ email này đã được sử dụng bởi người dùng khác.";
-                }
-                $stmt_check_email->close();
-            } else {
-                 $form_errors['general'] = "Lỗi kiểm tra email.";
+        if ($new_password !== $confirm_password) {
+            $form_errors['confirm_password'] = "Xác nhận mật khẩu mới không khớp.";
+        }
+
+        // Nếu admin đang tự sửa mật khẩu, yêu cầu mật khẩu hiện tại
+        if ($is_editing_self) {
+            $current_password = $_POST['current_password'] ?? '';
+            if (empty($current_password)) {
+                $form_errors['current_password'] = "Vui lòng nhập mật khẩu hiện tại để thay đổi.";
+            } elseif (!password_verify($current_password, $user_current_data['password_hash'])) {
+                $form_errors['current_password'] = "Mật khẩu hiện tại không chính xác.";
             }
         }
         
-        $password_changed_successfully = false;
-        $password_update_sql_part = "";
-        $new_password_hashed_for_update = null;
+        // Nếu không có lỗi mật khẩu, hash mật khẩu mới
+        if (!isset($form_errors['new_password']) && !isset($form_errors['confirm_password']) && !isset($form_errors['current_password'])) {
+            $new_password_hashed = password_hash($new_password, PASSWORD_DEFAULT);
+        }
+    }
 
-        if (!empty($new_password_input) || !empty($confirm_password_input)) {
-            // Nếu admin đang tự sửa mật khẩu của mình, có thể yêu cầu mật khẩu hiện tại
-            if ($is_editing_self && $is_current_user_admin) { 
-                if (empty($current_password_input)) {
-                    $form_errors['current_password'] = "Vui lòng nhập mật khẩu hiện tại của bạn để thay đổi.";
-                } elseif (!password_verify($current_password_input, $user_to_edit['password_hash'])) { 
-                    $form_errors['current_password'] = "Mật khẩu hiện tại không chính xác.";
-                }
-            }
-            // Admin có thể đổi mật khẩu người khác mà không cần mật khẩu hiện tại của người đó
+    // --- 3.5. Validate quyền Admin ---
+    // Ngăn admin cuối cùng tự bỏ quyền của mình
+    if ($is_editing_self && $user_current_data['is_admin'] == 1 && $is_admin_from_form == 0) {
+         $stmt_count_admins = $conn->query("SELECT COUNT(id) as admin_count FROM users WHERE is_admin = 1");
+         $admin_count = $stmt_count_admins->fetch_assoc()['admin_count'];
+         if ($admin_count <= 1) {
+             $form_errors['is_admin'] = "Không thể tự bỏ quyền của quản trị viên cuối cùng.";
+         }
+    }
 
-            if (empty($new_password_input)) {
-                $form_errors['new_password'] = "Mật khẩu mới không được để trống nếu bạn muốn thay đổi.";
-            } elseif (strlen($new_password_input) < 6) {
-                $form_errors['new_password'] = "Mật khẩu mới phải có ít nhất 6 ký tự.";
+    // --- 3.6. Xử lý sau khi validate ---
+    if (empty($form_errors)) {
+        // Bắt đầu transaction
+        $conn->begin_transaction();
+        try {
+            // Xây dựng câu lệnh UPDATE động
+            $sql_parts = [];
+            $param_types = "";
+            $param_values = [];
+
+            $sql_parts[] = "fullname = ?"; $param_types .= "s"; $param_values[] = $fullname;
+            $sql_parts[] = "email = ?"; $param_types .= "s"; $param_values[] = $email;
+            $sql_parts[] = "avatar_url = ?"; $param_types .= "s"; $param_values[] = $avatar_url === '' ? null : $avatar_url;
+
+            if ($new_password_hashed !== null) {
+                $sql_parts[] = "password_hash = ?"; $param_types .= "s"; $param_values[] = $new_password_hashed;
             }
-            if ($new_password_input !== $confirm_password_input) {
-                $form_errors['confirm_password'] = "Xác nhận mật khẩu mới không khớp.";
+
+            // Chỉ cho phép cập nhật quyền admin nếu không phải đang tự sửa
+            if (!$is_editing_self) {
+                $sql_parts[] = "is_admin = ?"; $param_types .= "i"; $param_values[] = $is_admin_from_form;
             }
             
-            if (empty($form_errors['current_password']) && empty($form_errors['new_password']) && empty($form_errors['confirm_password'])) {
-                $new_password_hashed_for_update = password_hash($new_password_input, PASSWORD_DEFAULT);
-                $password_update_sql_part = ", password_hash = ?"; // Sử dụng password_hash
-                $password_changed_successfully = true;
+            // Thêm ID người dùng vào cuối
+            $param_values[] = $user_id_to_edit;
+            $param_types .= "i";
+
+            $sql_query = "UPDATE users SET " . implode(", ", $sql_parts) . " WHERE id = ?";
+            
+            $stmt_update = $conn->prepare($sql_query);
+            $stmt_update->bind_param($param_types, ...$param_values);
+            
+            if ($stmt_update->execute()) {
+                $conn->commit();
+                $_SESSION['success_message_admin'] = "Thông tin người dùng đã được cập nhật thành công!";
+                header('Location: manage_users.php'); // Chuyển về trang quản lý
+                exit;
+            } else {
+                throw new Exception("Lỗi khi thực thi câu lệnh cập nhật.");
             }
+
+        } catch (Exception $e) {
+            $conn->rollback();
+            error_log("Lỗi cập nhật user admin: " . $e->getMessage());
+            $_SESSION['form_errors_admin_edit'] = ['general' => "Đã có lỗi xảy ra trong quá trình cập nhật. Vui lòng thử lại."];
         }
+    }
 
-        $final_is_admin_value = $user_to_edit['is_admin']; 
-        $can_try_update_admin_status = false;
-
-        if ($is_current_user_admin) {
-            if (!$is_editing_self) { 
-                $final_is_admin_value = $is_admin_from_form; 
-                $can_try_update_admin_status = true; 
-            } else { 
-                if ($is_admin_from_form == 0 && $user_to_edit['is_admin'] == 1) {
-                    $sql_count_admins = "SELECT COUNT(id) as admin_count FROM users WHERE is_admin = 1";
-                    $res_count = $conn->query($sql_count_admins);
-                    $admin_count_row = $res_count ? $res_count->fetch_assoc() : null; // Kiểm tra $res_count
-                    if ($admin_count_row && $admin_count_row['admin_count'] <= 1) {
-                        $form_errors['is_admin'] = "Bạn không thể tự bỏ quyền của admin cuối cùng.";
-                    } else {
-                        // Nếu admin cố tình bỏ quyền (ví dụ qua dev tools) và không phải admin cuối cùng
-                        // thì cho phép (hoặc chặn tùy logic của bạn).
-                        // Hiện tại, checkbox bị disabled nên giá trị này không nên được gửi.
-                        // Nếu vẫn gửi, giữ nguyên quyền admin hiện tại để an toàn.
-                        $final_is_admin_value = $user_to_edit['is_admin']; 
-                    }
-                }
-                // $can_try_update_admin_status vẫn là false khi admin tự sửa
-            }
-        }
-
-        if (empty($form_errors)) {
-            $conn->begin_transaction();
-            try {
-                $sql_update_parts = [];
-                $params_types = "";
-                $params_values = [];
-
-                // Chỉ thêm vào update nếu giá trị thay đổi so với CSDL hoặc là mật khẩu mới
-                if ($fullname_input !== $user_to_edit['fullname']) {
-                    $sql_update_parts[] = "fullname = ?"; $params_types .= "s"; $params_values[] = $fullname_input;
-                }
-                if ($email_input !== $user_to_edit['email']) {
-                    $sql_update_parts[] = "email = ?"; $params_types .= "s"; $params_values[] = $email_input;
-                }
-                if ($avatar_url_input !== $user_to_edit['avatar_url']) {
-                     $sql_update_parts[] = "avatar_url = ?"; $params_types .= "s"; $params_values[] = $avatar_url_input === '' ? null : $avatar_url_input;
-                }
-                if ($password_changed_successfully && $new_password_hashed_for_update) {
-                    $sql_update_parts[] = "password_hash = ?"; $params_types .= "s"; $params_values[] = $new_password_hashed_for_update;
-                }
-                if ($can_try_update_admin_status && (int)$final_is_admin_value !== (int)$user_to_edit['is_admin']) {
-                    $sql_update_parts[] = "is_admin = ?"; $params_types .= "i"; $params_values[] = $final_is_admin_value;
-                }
-                
-                if (!empty($sql_update_parts)) {
-                    $params_values[] = $user_id_to_edit; 
-                    $params_types .= "i";
-                    $sql_update_query = "UPDATE users SET " . implode(", ", $sql_update_parts) . " WHERE id = ?";
-                    $stmt_update = $conn->prepare($sql_update_query);
-
-                    if ($stmt_update) {
-                        $stmt_update->bind_param($params_types, ...$params_values); 
-                        if ($stmt_update->execute()) {
-                            $conn->commit();
-                            $_SESSION['success_message_admin'] = "Thông tin người dùng đã được cập nhật thành công!";
-                            // Chuyển hướng về trang quản lý người dùng để thấy thay đổi
-                            header('Location: manage_users.php?update_success=1');
-                            exit;
-                        } else {
-                            $conn->rollback();
-                            $form_errors['general'] = "Lỗi khi cập nhật thông tin: " . $stmt_update->error;
-                        }
-                        $stmt_update->close();
-                    } else {
-                        $conn->rollback();
-                        $form_errors['general'] = "Lỗi chuẩn bị câu lệnh cập nhật: " . $conn->error;
-                    }
-                } else {
-                    $success_message = "Không có thông tin nào được thay đổi."; 
-                }
-            } catch (Exception $e) {
-                $conn->rollback();
-                error_log("Lỗi Exception khi cập nhật user (admin): " . $e->getMessage());
-                $form_errors['general'] = "Đã có lỗi không mong muốn xảy ra trong quá trình cập nhật.";
-            }
-        }
-        // Nếu có lỗi validate, lưu vào session và redirect lại để hiển thị lỗi
-        if (!empty($form_errors)) {
-            $_SESSION['form_errors_admin_edit'] = $form_errors;
-            $_SESSION['old_form_input_admin_edit'] = $_POST; // Lưu lại toàn bộ POST data
-            header('Location: edit_user.php?id=' . $user_id_to_edit);
-            exit;
-        }
-    } 
-}
-
-// Lấy lại thông tin người dùng một lần nữa nếu có cập nhật thành công (để form hiển thị đúng)
-// Hoặc nếu không phải POST request (lần đầu tải trang)
-if ($success_message || $_SERVER["REQUEST_METHOD"] != "POST") {
-    $stmt_reload_user = $conn->prepare("SELECT id, username, email, fullname, avatar_url, is_admin, password_hash FROM users WHERE id = ? LIMIT 1");
-    if($stmt_reload_user){
-        $stmt_reload_user->bind_param("i", $user_id_to_edit);
-        $stmt_reload_user->execute();
-        $reloaded_result = $stmt_reload_user->get_result();
-        if($reloaded_result->num_rows === 1){
-            $user_to_edit = $reloaded_result->fetch_assoc();
-        }
-        $stmt_reload_user->close();
+    // Nếu có lỗi, lưu lỗi và dữ liệu đã nhập vào session, sau đó chuyển hướng lại form
+    if (!empty($form_errors)) {
+        $_SESSION['form_errors_admin_edit'] = $form_errors;
+        $_SESSION['old_form_input_admin_edit'] = $_POST; // Lưu lại dữ liệu người dùng đã nhập
+        header('Location: ' . $_SERVER['PHP_SELF'] . '?id=' . $user_id_to_edit);
+        exit;
     }
 }
 
 
+// 4. LẤY DỮ LIỆU ĐỂ HIỂN THỊ (HTTP GET hoặc sau khi xử lý POST bị lỗi)
+// =====================================================================
+
+// Lấy thông tin chi tiết của người dùng để hiển thị trên form
+$stmt_get_user = $conn->prepare("SELECT id, username, email, fullname, avatar_url, is_admin FROM users WHERE id = ?");
+$stmt_get_user->bind_param("i", $user_id_to_edit);
+$stmt_get_user->execute();
+$result = $stmt_get_user->get_result();
+$user_to_edit = $result->fetch_assoc();
+$stmt_get_user->close();
+
+// Nếu không tìm thấy người dùng, chuyển hướng
+if (!$user_to_edit) {
+    $_SESSION['error_message_admin'] = "Không tìm thấy người dùng với ID được cung cấp.";
+    header('Location: manage_users.php');
+    exit;
+}
+
+// Lấy lỗi và dữ liệu cũ từ session (nếu có, từ lần submit trước bị lỗi)
+$form_errors = $_SESSION['form_errors_admin_edit'] ?? [];
+$old_input = $_SESSION['old_form_input_admin_edit'] ?? [];
+unset($_SESSION['form_errors_admin_edit'], $_SESSION['old_form_input_admin_edit']);
+
+// Điền lại form bằng dữ liệu cũ nếu có, nếu không thì dùng dữ liệu từ CSDL
+$display_fullname = $old_input['fullname'] ?? $user_to_edit['fullname'];
+$display_email = $old_input['email'] ?? $user_to_edit['email'];
+$display_avatar_url = $old_input['avatar_url'] ?? $user_to_edit['avatar_url'];
+$display_is_admin = isset($old_input['is_admin']) ? 1 : ($user_to_edit['is_admin'] ?? 0);
+
+// Tạo CSRF token mới cho form
+if (empty($_SESSION['csrf_token'])) {
+    $_SESSION['csrf_token'] = bin2hex(random_bytes(32));
+}
+
+// Đóng kết nối CSDL
 close_db_connection($conn);
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Chỉnh Sửa Thông Tin: <?php echo htmlspecialchars($user_to_edit['username'] ?? 'Không rõ'); ?></title>
+    <title>Chỉnh Sửa: <?php echo htmlspecialchars($user_to_edit['username']); ?></title>
     <script src="https://cdn.tailwindcss.com"></script>
-    <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;600;700;800&family=Nunito:wght@400;600;700;800&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Nunito:wght@400;600;700&display=swap" rel="stylesheet">
     <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <style>
         body { font-family: 'Nunito', sans-serif; background-color: #f3f4f6; }
-        .font-baloo { font-family: 'Baloo 2', cursive; }
-        .form-container { max-width: 700px; margin: 2rem auto; background-color: white; padding: 2rem; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -2px rgba(0,0,0,0.05); }
+        .form-container { max-width: 700px; margin: 2rem auto; background-color: white; padding: 2rem; border-radius: 0.75rem; box-shadow: 0 10px 15px -3px rgba(0,0,0,0.1); }
         .form-input { width: 100%; padding: 0.65rem 0.75rem; border: 1px solid #d1d5db; border-radius: 0.375rem; transition: border-color 0.2s; font-size: 0.9rem; }
         .form-input:focus { outline: none; border-color: #4f46e5; box-shadow: 0 0 0 3px rgba(79, 70, 229, 0.2); }
-        .form-input.bg-gray-100[readonly] { background-color: #f3f4f6; cursor: not-allowed; }
-        .form-label { display: block; margin-bottom: 0.375rem; font-weight: 500; color: #374151; font-size: 0.875rem; }
-        .form-group { margin-bottom: 1.25rem; }
-        .btn { padding: 0.65rem 1.25rem; border-radius: 0.375rem; font-weight: 600; transition: background-color 0.2s; font-size: 0.9rem; }
-        .btn-primary { background-color: #4f46e5; color: white; }
-        .btn-primary:hover { background-color: #4338ca; }
-        .btn-secondary { background-color: #6b7280; color: white; }
-        .btn-secondary:hover { background-color: #4b5563; }
+        .form-input.is-invalid { border-color: #ef4444; }
+        .form-input[readonly] { background-color: #f3f4f6; cursor: not-allowed; }
+        .form-label { display: block; margin-bottom: 0.375rem; font-weight: 600; color: #374151; font-size: 0.875rem; }
         .error-text { color: #ef4444; font-size: 0.8rem; margin-top: 0.25rem; }
-        .success-message { background-color: #dcfce7; color: #166534; padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 1.5rem; border-left: 4px solid #22c55e; }
-        .password-section { border-top: 1px solid #e5e7eb; margin-top: 1.75rem; padding-top: 1.75rem; }
+        .alert-error { background-color: #fef2f2; color: #991b1b; padding: 0.75rem; border-radius: 0.375rem; margin-bottom: 1.5rem; border-left: 4px solid #ef4444; }
     </style>
 </head>
 <body>
     <div class="form-container">
-        <h1 class="font-baloo text-2xl sm:text-3xl font-bold text-indigo-600 mb-6 text-center">
-            Chỉnh Sửa Thông Tin: <?php echo htmlspecialchars($user_to_edit['username'] ?? 'N/A'); ?>
+        <h1 class="text-2xl sm:text-3xl font-bold text-indigo-600 mb-6 text-center">
+            Chỉnh Sửa Thông Tin: <?php echo htmlspecialchars($user_to_edit['username']); ?>
         </h1>
 
-        <?php if (!empty($success_message)): ?>
-            <div class="success-message">
-                <i class="fas fa-check-circle mr-2"></i><?php echo htmlspecialchars($success_message); ?>
-            </div>
-        <?php endif; ?>
-
         <?php if (isset($form_errors['general'])): ?>
-            <div class="p-3 bg-red-100 border border-red-300 rounded-md mb-4 text-red-700">
+            <div class="alert-error">
                 <i class="fas fa-exclamation-triangle mr-2"></i><?php echo htmlspecialchars($form_errors['general']); ?>
             </div>
         <?php endif; ?>
 
-        <?php if ($user_to_edit): // Chỉ hiển thị form nếu có dữ liệu người dùng ?>
-        <form action="edit_user.php?id=<?php echo $user_id_to_edit; ?>" method="POST">
-            <input type="hidden" name="user_id_to_edit_field" value="<?php echo $user_id_to_edit; ?>">
+        <form action="<?php echo htmlspecialchars($_SERVER['PHP_SELF'] . '?id=' . $user_id_to_edit); ?>" method="POST" novalidate>
+            <input type="hidden" name="csrf_token" value="<?php echo htmlspecialchars($_SESSION['csrf_token']); ?>">
+            
             <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                <div class="form-group">
-                    <label for="username" class="form-label">Tên đăng nhập:</label>
-                    <input type="text" id="username" name="username_display" class="form-input bg-gray-100" 
-                           value="<?php echo htmlspecialchars($user_to_edit['username']); ?>" readonly>
+                <div class="mb-4">
+                    <label for="username" class="form-label">Tên đăng nhập</label>
+                    <input type="text" id="username" class="form-input" value="<?php echo htmlspecialchars($user_to_edit['username']); ?>" readonly>
                     <p class="text-xs text-gray-500 mt-1">Tên đăng nhập không thể thay đổi.</p>
                 </div>
-
-                <div class="form-group">
-                    <label for="email" class="form-label">Email:</label>
-                    <input type="email" id="email" name="email" class="form-input" 
-                           value="<?php echo htmlspecialchars($user_to_edit['email'] ?? ''); ?>" required>
+                
+                <div class="mb-4">
+                    <label for="email" class="form-label">Email</label>
+                    <input type="email" id="email" name="email" class="form-input <?php echo isset($form_errors['email']) ? 'is-invalid' : ''; ?>" value="<?php echo htmlspecialchars($display_email); ?>" required>
                     <?php if (isset($form_errors['email'])): ?><p class="error-text"><?php echo $form_errors['email']; ?></p><?php endif; ?>
                 </div>
             
-                <div class="form-group md:col-span-2">
-                    <label for="fullname" class="form-label">Họ và Tên:</label>
-                    <input type="text" id="fullname" name="fullname" class="form-input" 
-                           value="<?php echo htmlspecialchars($user_to_edit['fullname'] ?? ''); ?>" required>
+                <div class="mb-4 md:col-span-2">
+                    <label for="fullname" class="form-label">Họ và Tên</label>
+                    <input type="text" id="fullname" name="fullname" class="form-input <?php echo isset($form_errors['fullname']) ? 'is-invalid' : ''; ?>" value="<?php echo htmlspecialchars($display_fullname); ?>" required>
                     <?php if (isset($form_errors['fullname'])): ?><p class="error-text"><?php echo $form_errors['fullname']; ?></p><?php endif; ?>
                 </div>
 
-                <div class="form-group md:col-span-2">
-                    <label for="avatar_url" class="form-label">URL Ảnh đại diện (tùy chọn):</label>
-                    <input type="url" id="avatar_url" name="avatar_url" class="form-input" 
-                           placeholder="https://example.com/avatar.png"
-                           value="<?php echo htmlspecialchars($user_to_edit['avatar_url'] ?? ''); ?>">
-                    <?php if(!empty($user_to_edit['avatar_url'])): ?>
-                        <img src="<?php echo htmlspecialchars($user_to_edit['avatar_url']); ?>" 
-                             alt="Avatar hiện tại" 
-                             class="mt-2 h-16 w-16 rounded-full object-cover border border-gray-300"
-                             onerror="this.style.display='none';">
+                <div class="mb-4 md:col-span-2">
+                    <label for="avatar_url" class="form-label">URL Ảnh đại diện (tùy chọn)</label>
+                    <input type="url" id="avatar_url" name="avatar_url" class="form-input" placeholder="https://example.com/avatar.png" value="<?php echo htmlspecialchars($display_avatar_url); ?>">
+                    <?php if(!empty($display_avatar_url)): ?>
+                        <img src="<?php echo htmlspecialchars($display_avatar_url); ?>" alt="Avatar hiện tại" class="mt-2 h-16 w-16 rounded-full object-cover border border-gray-300" onerror="this.style.display='none';">
                     <?php endif; ?>
                 </div>
             </div>
 
-            <div class="password-section">
-                <h2 class="font-baloo text-xl font-semibold text-gray-700 mb-3">Thay Đổi Mật Khẩu</h2>
+            <div class="mt-6 border-t pt-6">
+                <h2 class="text-xl font-semibold text-gray-700 mb-3">Thay Đổi Mật Khẩu</h2>
                 <p class="text-sm text-gray-500 mb-4">Để trống các trường mật khẩu nếu bạn không muốn thay đổi.</p>
                 
-                <?php if ($is_editing_self && $is_current_user_admin): // Admin tự sửa, có thể yêu cầu mật khẩu hiện tại ?>
-                <div class="form-group">
-                    <label for="current_password" class="form-label">Mật khẩu hiện tại (nếu đổi mật khẩu):</label>
-                    <input type="password" id="current_password" name="current_password" class="form-input" autocomplete="current-password">
+                <?php if ($is_editing_self): ?>
+                <div class="mb-4">
+                    <label for="current_password" class="form-label">Mật khẩu hiện tại (bắt buộc nếu đổi mật khẩu)</label>
+                    <input type="password" id="current_password" name="current_password" class="form-input <?php echo isset($form_errors['current_password']) ? 'is-invalid' : ''; ?>" autocomplete="current-password">
                     <?php if (isset($form_errors['current_password'])): ?><p class="error-text"><?php echo $form_errors['current_password']; ?></p><?php endif; ?>
                 </div>
                 <?php endif; ?>
 
                 <div class="grid grid-cols-1 md:grid-cols-2 gap-x-6 gap-y-4">
-                    <div class="form-group">
-                        <label for="new_password" class="form-label">Mật khẩu mới:</label>
-                        <input type="password" id="new_password" name="new_password" class="form-input" autocomplete="new-password" placeholder="Ít nhất 6 ký tự">
+                    <div class="mb-4">
+                        <label for="new_password" class="form-label">Mật khẩu mới</label>
+                        <input type="password" id="new_password" name="new_password" class="form-input <?php echo isset($form_errors['new_password']) ? 'is-invalid' : ''; ?>" autocomplete="new-password" placeholder="Ít nhất 6 ký tự">
                         <?php if (isset($form_errors['new_password'])): ?><p class="error-text"><?php echo $form_errors['new_password']; ?></p><?php endif; ?>
                     </div>
-
-                    <div class="form-group">
-                        <label for="confirm_password" class="form-label">Xác nhận mật khẩu mới:</label>
-                        <input type="password" id="confirm_password" name="confirm_password" class="form-input" autocomplete="new-password">
+                    <div class="mb-4">
+                        <label for="confirm_password" class="form-label">Xác nhận mật khẩu mới</label>
+                        <input type="password" id="confirm_password" name="confirm_password" class="form-input <?php echo isset($form_errors['confirm_password']) ? 'is-invalid' : ''; ?>" autocomplete="new-password">
                         <?php if (isset($form_errors['confirm_password'])): ?><p class="error-text"><?php echo $form_errors['confirm_password']; ?></p><?php endif; ?>
                     </div>
                 </div>
             </div>
 
-            <?php if ($is_current_user_admin): // Chỉ admin mới thấy và có thể thay đổi quyền (trừ khi tự sửa) ?>
-            <div class="form-group mt-6 border-t pt-6">
+            <div class="mt-6 border-t pt-6">
                 <label for="is_admin" class="flex items-center <?php echo $is_editing_self ? 'cursor-not-allowed opacity-70' : 'cursor-pointer'; ?>">
                     <input type="checkbox" id="is_admin" name="is_admin" value="1" class="h-5 w-5 text-indigo-600 border-gray-300 rounded focus:ring-indigo-500"
-                           <?php echo ($user_to_edit['is_admin'] ?? 0) ? 'checked' : ''; ?>
-                           <?php if ($is_editing_self) { echo 'disabled title="Bạn không thể tự thay đổi quyền admin của chính mình."'; } ?>>
-                    <span class="ml-2 text-gray-700">Là Quản Trị Viên (Admin)</span>
+                        <?php echo ($display_is_admin) ? 'checked' : ''; ?>
+                        <?php if ($is_editing_self) { echo 'disabled title="Bạn không thể tự thay đổi quyền của chính mình."'; } ?>>
+                    <span class="ml-2 text-gray-700 font-semibold">Là Quản Trị Viên (Admin)</span>
                 </label>
-                <?php if (isset($form_errors['is_admin'])): ?>
-                    <p class="error-text"><?php echo $form_errors['is_admin']; ?></p>
+                <?php if ($is_editing_self): ?>
+                    <p class="text-xs text-gray-500 mt-1">Để đảm bảo an toàn, bạn không thể tự thay đổi quyền quản trị của chính mình tại đây.</p>
                 <?php endif; ?>
-                <?php if ($is_editing_self && $is_current_user_admin): ?>
-                    <p class="text-xs text-gray-500 mt-1">Quyền admin của bạn không thể thay đổi qua form này.</p>
-                <?php endif; ?>
+                 <?php if (isset($form_errors['is_admin'])): ?><p class="error-text mt-1"><?php echo $form_errors['is_admin']; ?></p><?php endif; ?>
             </div>
-            <?php endif; ?>
 
 
             <div class="mt-8 flex flex-col sm:flex-row justify-end sm:space-x-3 space-y-3 sm:space-y-0">
-                <a href="<?php echo $is_current_user_admin ? 'manage_users.php' : '../dashboard.php'; ?>" class="btn btn-secondary text-center">
+                <a href="manage_users.php" class="text-center py-2 px-4 rounded-md font-semibold bg-gray-200 text-gray-700 hover:bg-gray-300 transition">
                     <i class="fas fa-times mr-2"></i>Hủy Bỏ
                 </a>
-                <button type="submit" class="btn btn-primary">
+                <button type="submit" class="text-center py-2 px-4 rounded-md font-semibold bg-indigo-600 text-white hover:bg-indigo-700 transition">
                     <i class="fas fa-save mr-2"></i>Lưu Thay Đổi
                 </button>
             </div>
         </form>
-        <?php else: ?>
-            <p class="text-red-600 text-center">Không thể tải thông tin người dùng. Vui lòng thử lại hoặc liên hệ quản trị viên.</p>
-        <?php endif; ?>
     </div>
 </body>
 </html>
-

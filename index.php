@@ -2,10 +2,38 @@
 if (session_status() == PHP_SESSION_NONE) {
     session_start();
 }
+
+// Nếu người dùng đã đăng nhập, chuyển hướng đến dashboard
 if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     header('Location: dashboard.php');
     exit;
 }
+
+// Bao gồm file cấu hình CSDL và kết nối
+require_once 'config/db_config.php';
+$conn = connect_db();
+
+$top_players = [];
+if ($conn) {
+    // Lấy top 3-5 người chơi có điểm cao nhất (không phải admin)
+    // Cập nhật câu SQL để lấy thêm school_name
+    $sql_top_players = "SELECT fullname, username, school_name, points, avatar_url 
+                        FROM users 
+                        WHERE is_admin = FALSE AND points > 0
+                        ORDER BY points DESC 
+                        LIMIT 3"; // Lấy top 3, bạn có thể thay đổi số này
+    $result_top_players = $conn->query($sql_top_players);
+    if ($result_top_players) {
+        while ($row = $result_top_players->fetch_assoc()) {
+            $top_players[] = $row;
+        }
+        $result_top_players->free();
+    } else {
+        error_log("Lỗi truy vấn top người chơi trên index.php: " . $conn->error);
+    }
+    close_db_connection($conn);
+}
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -15,6 +43,7 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     <title>Toán Vui Tiểu Học - Bé Học Toán Giỏi</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <link href="https://fonts.googleapis.com/css2?family=Baloo+2:wght@400;500;600;700;800&family=Inter:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.1.1/css/all.min.css">
     <style>
         body {
             font-family: 'Inter', sans-serif;
@@ -96,53 +125,79 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
             color: #FACC15; /* Yellow 400 */
             font-size: 1.3rem; /* Adjusted size */
         }
-        .character-illustration-container {
-            position: relative;
-            padding-top: 1rem;
-            min-height: 280px; /* Ensured min-height */
-        }
-        .character-img {
-            max-width: 110px; /* Slightly smaller */
-            position: absolute;
-            transition: transform 0.3s ease-out;
-        }
-        .character-img:hover {
-            transform: translateY(-5px) scale(1.05);
-        }
-        .sun-img {
-            width: 70px; 
-            position: absolute;
-            top: 10px; /* Adjusted position */
-            right: 10px;
-            opacity: 0.9;
-        }
-        .map-placeholder {
-            background-color: #E0F2FE; /* Sky 100 */
-            border: 2px dashed #7DD3FC; /* Sky 300 */
+        
+        /* --- Bảng Xếp Hạng Mini --- */
+        .leaderboard-mini-container {
+            background-color: #FFF7ED; /* Màu nền nhẹ nhàng cho bảng xếp hạng */
             border-radius: 0.75rem; /* 12px */
             padding: 1.5rem;
-            min-height: 260px; 
-            display: flex;
-            flex-direction: column; /* Allow text to stack */
-            align-items: center;
-            justify-content: center;
-            color: #0369A1; /* Sky 700 */
-            font-weight: 500; /* Adjusted font-weight */
-            text-align: center;
+            margin-top: 1rem;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.08);
         }
-        .bar-chart-placeholder {
-            background-color: #E0E7FF; /* Indigo 100 */
-            border: 2px dashed #A5B4FC; /* Indigo 300 */
-            border-radius: 0.5rem;
-            padding: 1.5rem;
-            min-height: 160px;
+        .leaderboard-mini-title {
+            font-family: 'Baloo 2', cursive;
+            font-size: 1.5rem; /* 24px */
+            font-weight: 700;
+            color: #D97706; /* Amber 600 */
+            text-align: center;
+            margin-bottom: 1rem;
+        }
+        .leaderboard-mini-item {
             display: flex;
             align-items: center;
-            justify-content: center;
-            color: #4338CA; /* Indigo 700 */
-            font-weight: 500;
+            padding: 0.6rem 0;
+            border-bottom: 1px solid #FDE68A; /* Amber 200 */
+        }
+        .leaderboard-mini-item:last-child {
+            border-bottom: none;
+        }
+        .leaderboard-mini-rank {
+            font-family: 'Baloo 2', cursive;
+            font-size: 1.1rem;
+            font-weight: 700;
+            color: #92400E; /* Amber 700 */
+            width: 2.5rem; /* ~40px */
             text-align: center;
         }
+        .leaderboard-mini-avatar {
+            width: 36px; /* Giảm kích thước avatar */
+            height: 36px;
+            border-radius: 50%;
+            object-fit: cover;
+            margin-left: 0.5rem;
+            margin-right: 0.75rem;
+            border: 2px solid #FDBA74; /* Amber 300 */
+        }
+        .leaderboard-mini-info {
+            flex-grow: 1;
+        }
+        .leaderboard-mini-name {
+            font-weight: 600;
+            color: #1F2937; /* Gray 800 */
+            font-size: 0.9rem;
+        }
+        .leaderboard-mini-sub-info { 
+            font-size: 0.75rem;
+            color: #6B7280; /* Gray 500 */
+        }
+        .leaderboard-mini-points {
+            font-family: 'Baloo 2', cursive;
+            font-size: 1rem;
+            font-weight: 700;
+            color: #F59E0B; /* Amber 500 */
+        }
+        .leaderboard-mini-points i {
+            margin-right: 0.25rem;
+            color: #FACC15; /* Yellow 400 */
+        }
+        .no-leaderboard-data {
+            text-align: center;
+            color: #78350F; /* Amber 800 */
+            padding: 1rem 0;
+            font-style: italic;
+        }
+        /* --- Kết thúc Bảng Xếp Hạng Mini --- */
+
         .text-shadow-custom {
             text-shadow: 1px 1px 3px rgba(0,0,0,0.1);
         }
@@ -162,15 +217,31 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
         .instruction-item strong {
             font-weight: 600;
         }
+         .map-placeholder {
+            background-color: #E0F2FE; /* Sky 100 */
+            border: 2px dashed #7DD3FC; /* Sky 300 */
+            border-radius: 0.75rem; /* 12px */
+            padding: 1.5rem;
+            min-height: 260px; 
+            display: flex;
+            flex-direction: column; /* Allow text to stack */
+            align-items: center;
+            justify-content: center;
+            color: #0369A1; /* Sky 700 */
+            font-weight: 500; /* Adjusted font-weight */
+            text-align: center;
+        }
     </style>
 </head>
 <body class="min-h-screen">
 
     <header class="custom-header">
         <div class="container mx-auto flex items-center justify-between">
-            <div class="logo-text">Toán Vui</div> <nav class="hidden md:flex items-center">
+            <div class="logo-text">Toán Vui</div>
+            <nav class="hidden md:flex items-center">
                 <a href="index.php" class="nav-link">Trang chủ</a>
-                <a href="#features" class="nav-link">Tính năng</a> <a href="#how-to-play" class="nav-link">Cách chơi</a> <a href="admin/index.php" class="nav-link">Quản trị</a>
+                <a href="#features" class="nav-link">Tính năng</a>
+                <a href="#how-to-play" class="nav-link">Cách chơi</a>
             </nav>
             <div>
                 <a href="login.php" class="btn-primary-action">Bắt Đầu!</a>
@@ -179,7 +250,8 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     </header>
 
     <main class="container mx-auto p-4 md:px-6 pb-12">
-        <div class="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-center"> <div class="md:col-span-7 main-content-card">
+        <div class="grid grid-cols-1 md:grid-cols-12 gap-6 md:gap-8 items-start">
+            <div class="md:col-span-7 main-content-card">
                 <h1 class="font-baloo text-4xl md:text-5xl font-extrabold text-pink-600 mb-3 text-shadow-custom leading-tight">
                     Thử Thách Toán Học Vui Nhộn!
                 </h1>
@@ -205,12 +277,52 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
             </div>
 
             <div class="md:col-span-5">
-                <div class="character-illustration-container mb-6 bg-gradient-to-br from-pink-100 to-purple-100 rounded-xl p-4 flex items-end justify-center relative overflow-hidden shadow-lg">
-                    <img src="https://placehold.co/130x180/EC4899/FFFFFF?text=Mèo" alt="Nhân vật mèo" class="character-img bottom-0 left-5 z-10" style="max-width: 100px;">
-                    <img src="https://placehold.co/160x210/F97316/FFFFFF?text=Gấu" alt="Nhân vật gấu" class="character-img bottom-0 left-1/2 -translate-x-1/2 z-20" style="max-width: 120px;">
-                    <img src="https://placehold.co/120x170/22C55E/FFFFFF?text=Thỏ" alt="Nhân vật thỏ" class="character-img bottom-0 right-5 z-10" style="max-width: 90px;">
-                    <img src="https://placehold.co/70x70/FACC15/FFFFFF?text=SUN" alt="Mặt trời" class="sun-img">
-                     <p class="absolute top-4 left-4 font-baloo text-lg md:text-xl text-white bg-pink-500 px-4 py-1.5 rounded-lg shadow-md transform -rotate-3">Bé Vui Học Toán!</p>
+                <div class="leaderboard-mini-container">
+                    <h3 class="leaderboard-mini-title"><i class="fas fa-trophy mr-2"></i>Bảng Vàng Anh Hùng</h3>
+                    <?php if (!empty($top_players)): ?>
+                        <?php foreach ($top_players as $index => $player): ?>
+                            <?php
+                                $rank_display = $index + 1;
+                                $avatar_url_display = $player['avatar_url'] 
+                                    ? htmlspecialchars($player['avatar_url']) 
+                                    : 'https://placehold.co/36x36/cccccc/757575?text=' . strtoupper(substr($player['fullname'], 0, 1));
+                            ?>
+                            <div class="leaderboard-mini-item">
+                                <span class="leaderboard-mini-rank">
+                                    <?php if ($rank_display == 1): ?>
+                                        <i class="fas fa-crown text-yellow-400"></i>
+                                    <?php elseif ($rank_display == 2): ?>
+                                        <i class="fas fa-medal text-gray-400"></i>
+                                    <?php elseif ($rank_display == 3): ?>
+                                        <i class="fas fa-award text-yellow-600"></i>
+                                    <?php else: ?>
+                                        <?php echo $rank_display; ?>
+                                    <?php endif; ?>
+                                </span>
+                                <img src="<?php echo $avatar_url_display; ?>" alt="Avatar của <?php echo htmlspecialchars($player['fullname']); ?>" class="leaderboard-mini-avatar" onerror="this.src='https://placehold.co/36x36/E0E0E0/757575?text=Lỗi'; this.onerror=null;">
+                                <div class="leaderboard-mini-info">
+                                    <div class="leaderboard-mini-name"><?php echo htmlspecialchars($player['fullname']); ?></div>
+                                    <div class="leaderboard-mini-sub-info">
+                                        <?php if (!empty($player['school_name'])): ?>
+                                            <i class="fas fa-school fa-xs mr-1 text-sky-500"></i><?php echo htmlspecialchars($player['school_name']); ?>
+                                        <?php else: ?>
+                                            <span class="italic">Chưa có tên trường</span>
+                                        <?php endif; ?>
+                                    </div>
+                                </div>
+                                <div class="leaderboard-mini-points">
+                                    <i class="fas fa-star"></i><?php echo htmlspecialchars($player['points']); ?>
+                                </div>
+                            </div>
+                        <?php endforeach; ?>
+                         <div class="text-center mt-4">
+                            <a href="leaderboard.php" class="text-sm text-pink-600 hover:text-pink-700 font-semibold">
+                                Xem Bảng Xếp Hạng Đầy Đủ <i class="fas fa-arrow-right fa-xs ml-1"></i>
+                            </a>
+                        </div>
+                    <?php else: ?>
+                        <p class="no-leaderboard-data">Chưa có anh hùng nào trên bảng vàng. Hãy là người đầu tiên!</p>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -279,15 +391,16 @@ if (isset($_SESSION['logged_in']) && $_SESSION['logged_in'] === true) {
     </footer>
 
     <script>
-        // Placeholder for future JS if needed
-        console.log("Trang chủ với giao diện mới đã tải!");
-        // Smooth scroll for anchor links in nav
+        console.log("Trang chủ với giao diện mới và bảng xếp hạng mini đã tải!");
         document.querySelectorAll('a[href^="#"]').forEach(anchor => {
             anchor.addEventListener('click', function (e) {
                 e.preventDefault();
-                document.querySelector(this.getAttribute('href')).scrollIntoView({
-                    behavior: 'smooth'
-                });
+                const targetElement = document.querySelector(this.getAttribute('href'));
+                if (targetElement) {
+                    targetElement.scrollIntoView({
+                        behavior: 'smooth'
+                    });
+                }
             });
         });
     </script>

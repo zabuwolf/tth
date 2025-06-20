@@ -27,6 +27,44 @@ require_once 'game_includes/view_data_preparer.php';
 // $game_display_info, $final_score_from_url, $game_message_code, $newly_awarded_badges_to_display
 // $skill_button_url, $map_end_timestamp_for_js, $is_game_active_for_js, $total_time_seconds_for_js, $game_over_url_js
 
+// --- LOGIC CHO NÚT HEADER ĐỘNG ---
+// Mặc định là nút Đăng xuất
+$header_button_href = 'logout.php';
+$header_button_title = 'Đăng xuất';
+$header_button_icon_class = 'fas fa-sign-out-alt';
+$header_button_text = 'Thoát'; // Text cho di động
+
+if ($stage === 'select_character') {
+    // Quay lại trang chọn chủ đề, cần grade_id
+    $grade_param_for_back = isset($selected_grade_id) ? "&grade_id=" . urlencode($selected_grade_id) : "";
+    $guest_param_for_back = $is_guest ? "&action=guest_play" : "";
+    $header_button_href = 'game.php?stage=select_topic' . $grade_param_for_back . $guest_param_for_back;
+    $header_button_title = 'Quay lại chọn chủ đề';
+    $header_button_icon_class = 'fas fa-arrow-left';
+    $header_button_text = 'Quay Lại';
+} elseif ($stage === 'select_topic') {
+    // Quay lại trang chọn khối lớp
+    $guest_param_for_back = $is_guest ? "&action=guest_play" : "";
+    $header_button_href = 'game.php?stage=select_grade' . $guest_param_for_back;
+    $header_button_title = 'Quay lại chọn khối';
+    $header_button_icon_class = 'fas fa-arrow-left';
+    $header_button_text = 'Quay Lại';
+} elseif ($stage === 'select_grade') {
+    if ($is_guest) {
+        $header_button_href = 'index.php'; // Khách thì về trang chủ
+        $header_button_title = 'Về Trang Chủ';
+        $header_button_icon_class = 'fas fa-home';
+        $header_button_text = 'Trang Chủ';
+    } else {
+        $header_button_href = 'profile.php'; // Người dùng đã đăng nhập thì về trang hồ sơ
+        $header_button_title = 'Về Hồ Sơ';
+        $header_button_icon_class = 'fas fa-user-circle';
+        $header_button_text = 'Hồ Sơ';
+    }
+}
+// Đối với các stage khác (play_game, game_over, game_win), nút sẽ giữ nguyên là "Đăng xuất" theo giá trị mặc định ở trên.
+// --- KẾT THÚC LOGIC CHO NÚT HEADER ĐỘNG ---
+
 ?>
 <!DOCTYPE html>
 <html lang="vi">
@@ -62,12 +100,14 @@ require_once 'game_includes/view_data_preparer.php';
             border-radius: 50%; margin-right: 0.5rem; /* sm:mr-3 */
             border: 2px solid white;
         }
-        .header-bar .logout-link {
+        .header-bar .header-button-link { /* Đổi tên class từ logout-link để tổng quát hơn */
             color: white; font-size: 0.875rem; /* sm:text-sm */
             text-decoration: none; opacity: 0.9; transition: opacity 0.2s;
             padding: 0.25rem 0.5rem; border-radius: 0.25rem;
+            display: inline-flex; /* Thêm để icon và text căn tốt hơn */
+            align-items: center; /* Thêm để icon và text căn tốt hơn */
         }
-        .header-bar .logout-link:hover { opacity: 1; background-color: rgba(255,255,255,0.1); }
+        .header-bar .header-button-link:hover { opacity: 1; background-color: rgba(255,255,255,0.1); }
 
 
         /* --- Buttons --- */
@@ -130,7 +170,6 @@ require_once 'game_includes/view_data_preparer.php';
             transform: scale(1.05); 
         }
         .character-image-wrapper {
-            /* width và height sẽ được đặt bằng class Tailwind trong HTML của views/game_select_character.php */
             margin-bottom: 0.5rem; /* sm:mb-2 md:mb-3 */
             display: flex;
             align-items: center;
@@ -340,6 +379,46 @@ require_once 'game_includes/view_data_preparer.php';
         ::-webkit-scrollbar-track { background: #f1f1f1; border-radius: 10px; }
         ::-webkit-scrollbar-thumb { background: #D1D5DB; border-radius: 10px; }
         ::-webkit-scrollbar-thumb:hover { background: #9CA3AF; }
+        .game-map-area {
+    /* Đảm bảo có style cho background-image nếu dùng cách trên */
+}
+.map-path-container {
+    /* Có thể không cần nếu dùng flex items-center justify-around */
+}
+.map-node {
+    /* Các style cơ bản đã có trong class Tailwind */
+    /* Thêm style cho background-image nếu bạn muốn mỗi node có hình riêng */
+    /* background-image: url('path/to/node-image.png'); */
+    /* background-size: contain; */
+    /* background-repeat: no-repeat; */
+    /* background-position: center; */
+}
+.player-on-map-icon { /* Đã có animation ở trên nếu bạn muốn áp dụng */
+    /* animation: idleBobbing 1.5s ease-in-out infinite;  */
+}
+.map-connector {
+    /* Style cho đường nối giữa các bước */
+    /* Ví dụ: */
+    /* height: 4px; */
+    /* background-color: #FDBA74; Amber-300 */
+}
+
+/* Responsive adjustments cho map */
+@media (max-width: 640px) { /* sm breakpoint */
+    .map-node {
+        /* width: 32px; height: 32px; */ /* Giảm kích thước node trên mobile */
+    }
+    .player-on-map-icon {
+        /* width: 28px; height: 28px; */ /* Giảm kích thước avatar player trên mobile */
+    }
+    .game-map-area {
+        padding: 0.5rem;
+    }
+    .map-path-container {
+        /* Có thể cần overflow-x: auto; nếu quá nhiều node không vừa */
+        /* justify-content: flex-start; */ /* Để có thể cuộn ngang */
+    }
+}
     </style>
 </head>
 <body class="min-h-screen flex flex-col items-center justify-start p-2 sm:p-4 text-gray-800">
@@ -356,7 +435,7 @@ require_once 'game_includes/view_data_preparer.php';
                         echo "Chọn Khối Lớp";
                     } elseif ($stage === 'select_topic' && $selected_grade_name) {
                         echo "<span class='block text-xs sm:text-sm opacity-80'>Khối: " . htmlspecialchars($selected_grade_name) . "</span>Chọn Chủ Đề";
-                    } elseif ($stage === 'select_character' && $selected_topic_name) { // $selected_grade_name cũng nên có ở đây
+                    } elseif ($stage === 'select_character' && $selected_topic_name) {
                         echo "<span class='block text-xs sm:text-sm opacity-80'>" . htmlspecialchars($selected_grade_name). " &raquo; ".htmlspecialchars($selected_topic_name)."</span>Chọn Bạn Đồng Hành";
                     } elseif ($stage === 'play_game' && $game_display_info && ($game_display_info['game_active'] ?? false) === true) {
                         echo "<span class='hidden sm:inline'>Bước </span>" . htmlspecialchars($game_display_info['current_step']) . "/" . $total_map_steps;
@@ -365,49 +444,45 @@ require_once 'game_includes/view_data_preparer.php';
                     } elseif ($stage === 'game_win') {
                         echo "Chiến Thắng!";
                     } elseif ($stage === 'play_game' && ($game_display_info['game_active'] ?? false) === false) {
-                        // Trường hợp không thể bắt đầu game (ví dụ hết câu hỏi ngay từ đầu)
                         echo "Lỗi Trò Chơi";
                     }
                 ?>
             </div>
-            <a href="logout.php" class="logout-link" title="Đăng xuất">
-                <i class="fas fa-sign-out-alt text-lg sm:text-xl"></i>
-                <span class="sm:hidden ml-1 text-xs">Thoát</span>
+            <a href="<?php echo htmlspecialchars($header_button_href); ?>" class="header-button-link" title="<?php echo htmlspecialchars($header_button_title); ?>">
+                <i class="<?php echo $header_button_icon_class; ?> text-lg sm:text-xl"></i>
+                <span class="sm:hidden ml-1 text-xs"><?php echo htmlspecialchars($header_button_text); ?></span>
             </a>
         </div>
 
         <div class="game-content-area p-3 sm:p-5 md:p-6">
             <?php 
-            // Hiển thị nội dung dựa trên $stage
             if ($stage === 'select_grade'):
                 include 'views/game_select_grade.php'; 
             elseif ($stage === 'select_topic' && $selected_grade_id):
                 include 'views/game_select_topic.php'; 
             elseif ($stage === 'select_character' && $selected_grade_id && $selected_topic_id):
                 include 'views/game_select_character.php'; 
-            elseif ($stage === 'play_game'): // Bao gồm cả trường hợp không thể bắt đầu game
+            elseif ($stage === 'play_game'):
                 include 'views/game_play_area.php';
             elseif ($stage === 'game_win'):
                 include 'views/game_win_screen.php';
             elseif ($stage === 'game_over'):
                 include 'views/game_over_screen.php';
             else:
-                // Fallback hoặc trang lỗi nếu stage không hợp lệ
                 echo "<p class='text-red-500 text-center'>Lỗi: Giai đoạn không xác định.</p>";
-                echo "<p class='text-center mt-4'><a href='game.php?stage=select_grade" . ($is_guest ? "&action=guest_play" : "") . "' class='btn-action'>Quay lại chọn khối</a></p>";
+                $fallback_guest_param_stage = ($is_guest ? "&action=guest_play" : "");
+                echo "<p class='text-center mt-4'><a href='game.php?stage=select_grade" . $fallback_guest_param_stage . "' class='btn-action'>Quay lại chọn khối</a></p>";
             endif;
             ?>
         </div>
     </div> <?php // Kết thúc game-card ?>
 
     <?php
-    // Đóng kết nối CSDL
     if ($conn) {
         close_db_connection($conn);
     }
     ?>
 
-    <?php // Motivation Popup (giữ nguyên) ?>
     <?php if (isset($_SESSION['show_motivation_popup']) && $_SESSION['show_motivation_popup']): ?>
     <div class="motivation-popup-overlay active flex justify-center items-center" id="motivationPopup">
         <div class="motivation-popup-content">
@@ -441,7 +516,6 @@ require_once 'game_includes/view_data_preparer.php';
     <?php endif; ?>
 
 
-    <?php // JavaScript cho màn hình chọn nhân vật (giữ nguyên) ?>
     <?php if ($stage === 'select_character' && $selected_grade_id && $selected_topic_id): ?>
     <script>
         let selectedCharacterId = null;
@@ -483,19 +557,16 @@ require_once 'game_includes/view_data_preparer.php';
     </script>
     <?php endif; ?>
 
-    <?php // JavaScript cho màn hình chơi game (timer - giữ nguyên) ?>
-    <?php if ($stage === 'play_game' && $is_game_active_for_js === 'true'): // Chỉ chạy timer nếu game active ?>
+    <?php if ($stage === 'play_game' && $is_game_active_for_js === 'true'): ?>
     <script>
-        const mapEndTime = <?php echo (float)($map_end_timestamp_for_js ?? 0); ?> * 1000; // Đảm bảo là float
+        const mapEndTime = <?php echo (float)($map_end_timestamp_for_js ?? 0); ?> * 1000; 
         const timeRemainingElement = document.getElementById('timeRemaining');
         const gameTimerDisplayElement = document.getElementById('gameTimerDisplay');
         const answerForm = document.getElementById('answerForm');
         let gameTimerInterval;
-        // const isGameActiveJS = true; // Không cần thiết vì đã có điều kiện PHP bên ngoài
         const totalTimeForMapJS = <?php echo (float)($total_time_seconds_for_js ?? 0); ?>;
 
         function updateTimer() {
-            // if (!isGameActiveJS) { clearInterval(gameTimerInterval); return; } // Không cần thiết
             const now = new Date().getTime();
             const distance = mapEndTime - now;
 
@@ -523,10 +594,10 @@ require_once 'game_includes/view_data_preparer.php';
             }
         }
 
-        if (mapEndTime > 0 && timeRemainingElement && totalTimeForMapJS > 0) { // Bỏ isGameActiveJS === 'true'
+        if (mapEndTime > 0 && timeRemainingElement && totalTimeForMapJS > 0) {
             updateTimer(); 
             gameTimerInterval = setInterval(updateTimer, 1000);
-        } else if (timeRemainingElement && totalTimeForMapJS <= 0 ) { // Bỏ isGameActiveJS === 'true'
+        } else if (timeRemainingElement && totalTimeForMapJS <= 0 ) { 
             timeRemainingElement.textContent = "∞"; 
             if(gameTimerDisplayElement) {
                 gameTimerDisplayElement.classList.remove('time-low'); 

@@ -279,29 +279,13 @@ if (isset($passive_skill_to_announce_for_view) && $passive_skill_to_announce_for
     // JavaScript cho Passive Skill Modal
     const passiveSkillModal = document.getElementById('passiveSkillModal');
     
-    // Quan trọng: Các biến timer sau đây phải được khai báo ở scope global trong file game.php (file chính include view này)
-    // để hàm closePassiveSkillModal có thể truy cập và khởi động lại timer.
-    // Ví dụ, trong game.php (bên trong thẻ <script> chính):
-    // var gameTimerInterval; // Hoặc không có var/let/const nếu ở top-level của script
-    // var isGameActiveJS = '<?php echo $is_game_active_for_js; // được chuẩn bị bởi view_data_preparer.php ?>'; 
-    // var mapEndTime = <?php echo (float)($map_end_timestamp_for_js ?? 0); ?> * 1000; 
-    // var totalTimeForMapJS = <?php echo (float)($total_time_seconds_for_js ?? 0); ?>; 
-    // function updateTimer() { /* định nghĩa ở game.php */ }
-    // // ... và khởi tạo timer ban đầu ...
-    // if (isGameActiveJS === 'true' && mapEndTime > 0 && totalTimeForMapJS > 0) {
-    //    updateTimer();
-    //    gameTimerInterval = setInterval(updateTimer, 1000);
-    // } else if (isGameActiveJS === 'true' && totalTimeForMapJS <= 0) { /* xử lý timer vô hạn */ }
-
-
     function showPassiveSkillModal() {
         if (passiveSkillModal) {
-            // Cố gắng tạm dừng timer nếu nó đang chạy
-            if (typeof window.gameTimerInterval !== 'undefined' && typeof clearInterval === 'function') {
-                clearInterval(window.gameTimerInterval);
-                console.log("Game timer paused for passive skill announcement.");
+            // Sử dụng đối tượng gameTimer đã được tạo ở game.php
+            if (typeof window.gameTimer !== 'undefined' && typeof window.gameTimer.pause === 'function') {
+                window.gameTimer.pause();
             } else {
-                console.warn("showPassiveSkillModal: gameTimerInterval is not defined or clearInterval is not a function. Timer might not be paused.");
+                console.warn("showPassiveSkillModal: gameTimer object is not defined or pause method is missing. Timer might not be paused.");
             }
             passiveSkillModal.classList.add('active');
         }
@@ -310,36 +294,16 @@ if (isset($passive_skill_to_announce_for_view) && $passive_skill_to_announce_for
     function closePassiveSkillModal() {
         if (passiveSkillModal) {
             passiveSkillModal.classList.remove('active');
-            // Cố gắng khởi động lại timer nếu game vẫn active và các biến cần thiết tồn tại
-            if (typeof window.isGameActiveJS !== 'undefined' && window.isGameActiveJS === 'true' &&
-                typeof window.updateTimer === 'function' && 
-                typeof window.mapEndTime !== 'undefined' && window.mapEndTime > Date.now() && // Chỉ resume nếu thời gian chưa hết
-                typeof window.totalTimeForMapJS !== 'undefined' && window.totalTimeForMapJS > 0) {
-                
-                window.updateTimer(); // Cập nhật ngay
-                // Kiểm tra lại gameTimerInterval trước khi gán, tránh tạo nhiều interval
-                if (typeof window.gameTimerInterval !== 'undefined') clearInterval(window.gameTimerInterval);
-                window.gameTimerInterval = setInterval(window.updateTimer, 1000);
-                console.log("Game timer resumed after passive skill modal.");
-            } else if (typeof window.isGameActiveJS !== 'undefined' && window.isGameActiveJS === 'true' && typeof window.totalTimeForMapJS !== 'undefined' && window.totalTimeForMapJS <= 0) {
-                // Trường hợp timer vô hạn, không cần làm gì thêm sau khi đóng popup
-                console.log("Passive skill modal closed, game has infinite time.");
-            }
-             else {
-                console.warn("Could not resume game timer after closing passive skill modal. Conditions not met or timer already expired.");
-                // Nếu mapEndTime đã qua, không nên resume timer.
-                if(typeof window.mapEndTime !== 'undefined' && window.mapEndTime <= Date.now()){
-                    console.log("Map time has already ended.");
-                    // Có thể cần gọi hàm xử lý hết giờ ở đây nếu chưa được gọi tự động
-                    // Ví dụ: if(typeof handleTimeOut === 'function') handleTimeOut();
-                }
+            // Sử dụng đối tượng gameTimer
+            if (typeof window.gameTimer !== 'undefined' && typeof window.gameTimer.resume === 'function') {
+                window.gameTimer.resume();
+            } else {
+                console.warn("closePassiveSkillModal: gameTimer object is not defined or resume method is missing. Timer might not be resumed.");
             }
         }
     }
 
     <?php 
-    // Chỉ gọi showPassiveSkillModal nếu biến PHP tương ứng là true
-    // Biến $passive_skill_to_announce_for_view được chuẩn bị bởi view_data_preparer.php
     if (isset($passive_skill_to_announce_for_view) && $passive_skill_to_announce_for_view === true): 
     ?>
     document.addEventListener('DOMContentLoaded', function() {

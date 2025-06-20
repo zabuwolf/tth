@@ -5,7 +5,7 @@ require_once 'config/db_config.php';
 
 // Kiểm tra xem người dùng đã đăng nhập chưa
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || !isset($_SESSION['user_id'])) {
-    $_SESSION['login_error_message'] = "Vui lòng đăng nhập để xem hồ sơ của bạn.";
+    $_SESSION['login_errors'] = ['general' => "Vui lòng đăng nhập để xem hồ sơ của bạn."]; // Sử dụng key lỗi chung
     header('Location: login.php');
     exit;
 }
@@ -16,13 +16,13 @@ $user_id = (int)$_SESSION['user_id'];
 $conn = connect_db();
 if (!$conn) {
     // Xử lý lỗi kết nối CSDL một cách thân thiện
-    // Có thể chuyển hướng đến trang lỗi hoặc hiển thị thông báo
     die("Lỗi hệ thống: Không thể kết nối đến cơ sở dữ liệu. Vui lòng thử lại sau.");
 }
 
-// Lấy thông tin người dùng hiện tại từ CSDL
+// Lấy thông tin người dùng hiện tại từ CSDL, bao gồm cả school_name
 $user_profile_data = null;
-$sql_user = "SELECT id, fullname, username, email, points, avatar_url, created_at FROM users WHERE id = ? LIMIT 1";
+// Thêm school_name vào câu SELECT
+$sql_user = "SELECT id, fullname, username, email, school_name, points, avatar_url, created_at FROM users WHERE id = ? LIMIT 1";
 $stmt_user = $conn->prepare($sql_user);
 if ($stmt_user) {
     $stmt_user->bind_param("i", $user_id);
@@ -38,10 +38,10 @@ if ($stmt_user) {
 
 if (!$user_profile_data) {
     // Không tìm thấy người dùng, có thể session bị lỗi hoặc user bị xóa
-    // Hủy session và chuyển về trang đăng nhập
     session_unset();
     session_destroy();
-    header('Location: login.php?error=Không tìm thấy thông tin tài khoản của bạn.');
+    $_SESSION['login_errors'] = ['general' => 'Không tìm thấy thông tin tài khoản của bạn.']; // Sử dụng key lỗi chung
+    header('Location: login.php');
     exit;
 }
 
@@ -160,6 +160,7 @@ unset($_SESSION['success_message_change_password']); // Xóa sau khi lấy để
                     <p class="text-md text-gray-500">@<?php echo htmlspecialchars($user_profile_data['username']); ?></p>
                     <p class="text-sm text-gray-500 mt-1"><i class="fas fa-envelope mr-1 text-pink-500"></i> 
                         <?php 
+                        // Logic che email giữ nguyên
                         $email_parts = explode('@', $user_profile_data['email']);
                         if (count($email_parts) === 2) {
                             $local_part = $email_parts[0];
@@ -174,6 +175,12 @@ unset($_SESSION['success_message_change_password']); // Xóa sau khi lấy để
                         }
                         ?>
                     </p>
+                    <?php if (!empty($user_profile_data['school_name'])): ?>
+                    <p class="text-sm text-gray-500 mt-1">
+                        <i class="fas fa-school mr-1 text-sky-500"></i> 
+                        <?php echo htmlspecialchars($user_profile_data['school_name']); ?>
+                    </p>
+                    <?php endif; ?>
                     <p class="text-xs text-gray-400 mt-1">Tham gia ngày: <?php echo htmlspecialchars(date("d/m/Y", strtotime($user_profile_data['created_at']))); ?></p>
                 </div>
 
