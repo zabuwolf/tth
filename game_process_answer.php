@@ -48,10 +48,6 @@ if ($_SERVER["REQUEST_METHOD"] !== "POST" ||
 
 $game_state = &$_SESSION['game_state'];
 
-// Chuẩn bị map_start_time để truyền vào record_game_session
-$map_start_timestamp = $game_state['map_start_time'] ?? time(); // Unix timestamp
-$map_start_time_iso_for_db = date("Y-m-d H:i:s", $map_start_timestamp);
-
 if (isset($game_state['map_end_timestamp']) &&
     $site_settings['total_time_per_map_seconds'] > 0 && 
     time() > $game_state['map_end_timestamp']) {
@@ -61,7 +57,7 @@ if (isset($game_state['map_end_timestamp']) &&
 
     record_game_session(
         $conn, $user_id_for_db_timeout, $game_state['grade_id'], $game_state['character_id'],
-        $game_state['current_score'], false, $game_state['topic_id'], $map_start_time_iso_for_db
+        $game_state['current_score'], false, $game_state['topic_id']
     );
     close_db_connection($conn);
     $timeout_redirect_params = '&grade_id=' . urlencode($game_state['grade_id']) .
@@ -161,28 +157,30 @@ if ($answered_correctly) {
         $points_earned_today_after_this_answer = 0; 
     }
 
+    // Xử lý kỹ năng Thần Đồng (CHILD_PRODIGY_STREAK)
     if (isset($game_state['special_ability_code']) && $game_state['special_ability_code'] === 'CHILD_PRODIGY_STREAK') {
         $game_state['consecutive_correct_answers'] = ($game_state['consecutive_correct_answers'] ?? 0) + 1;
-        error_log("Thần Đồng Nhí: Trả lời đúng, consecutive_correct_answers = " . $game_state['consecutive_correct_answers']); 
+        error_log("Thần Đồng Nhí: Trả lời đúng, consecutive_correct_answers = " . $game_state['consecutive_correct_answers']); // DEBUG
     }
 
     $game_state['current_step']++; 
     $game_state['current_question_index_in_map']++; 
     unset($_SESSION['show_motivation_popup']); 
 
-    if ($game_state['current_step'] > $total_map_steps) { 
+    if ($game_state['current_step'] > $total_map_steps) { // Thắng game
         $game_state['game_active'] = false; 
-        error_log("Thắng game! Current step: " . $game_state['current_step'] . ", Total map steps: " . $total_map_steps); 
+        error_log("Thắng game! Current step: " . $game_state['current_step'] . ", Total map steps: " . $total_map_steps); // DEBUG
 
+        // Xử lý thưởng điểm từ kỹ năng Thần Đồng nếu thắng và đạt streak
         if (isset($game_state['special_ability_code']) && 
             $game_state['special_ability_code'] === 'CHILD_PRODIGY_STREAK' && 
             ($game_state['consecutive_correct_answers'] ?? 0) >= $site_settings['child_prodigy_streak_threshold']) {
             
             $prodigy_bonus_amount = $site_settings['child_prodigy_bonus_points'];
-            error_log("Thần Đồng Nhí: Đạt ngưỡng streak! Bonus: " . $prodigy_bonus_amount); 
+            error_log("Thần Đồng Nhí: Đạt ngưỡng streak! Bonus: " . $prodigy_bonus_amount); // DEBUG
             $game_state['current_score'] += $prodigy_bonus_amount; 
             $_SESSION['prodigy_bonus_applied'] = true; 
-            error_log("Thần Đồng Nhí: Đã áp dụng bonus, current_score = " . $game_state['current_score']); 
+            error_log("Thần Đồng Nhí: Đã áp dụng bonus, current_score = " . $game_state['current_score']); // DEBUG
 
 
             if ($user_id_for_db !== null) {
@@ -202,20 +200,20 @@ if ($answered_correctly) {
                             $stmt_upsert_daily_bonus_win->bind_param("isii", $user_id_for_db, $today_date_for_limit, $final_daily_points_after_all_bonus, $final_daily_points_after_all_bonus);
                             $stmt_upsert_daily_bonus_win->execute();
                             $stmt_upsert_daily_bonus_win->close();
-                            error_log("Thần Đồng Nhí: Đã cập nhật daily_earned_points với bonus: " . $prodigy_bonus_points_credited_to_db); 
+                            error_log("Thần Đồng Nhí: Đã cập nhật daily_earned_points với bonus: " . $prodigy_bonus_points_credited_to_db); // DEBUG
                         }
                     }
                 }
             }
         } else {
-             error_log("Thần Đồng Nhí: Không đạt ngưỡng streak hoặc không phải nhân vật Thần Đồng. Consecutive: " . ($game_state['consecutive_correct_answers'] ?? 0) . ", Threshold: " . $site_settings['child_prodigy_streak_threshold']); 
+             error_log("Thần Đồng Nhí: Không đạt ngưỡng streak hoặc không phải nhân vật Thần Đồng. Consecutive: " . ($game_state['consecutive_correct_answers'] ?? 0) . ", Threshold: " . $site_settings['child_prodigy_streak_threshold']); // DEBUG
         }
 
         $newly_awarded_badges = [];
         if ($user_id_for_db !== null) {
             $newly_awarded_badges = check_and_award_badges($conn, $user_id_for_db); 
         }
-        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], true, $game_state['topic_id'], $map_start_time_iso_for_db); 
+        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], true, $game_state['topic_id']); 
 
         if (!empty($newly_awarded_badges)) {
             $_SESSION['newly_awarded_badges'] = $newly_awarded_badges;
@@ -226,7 +224,7 @@ if ($answered_correctly) {
     }
     elseif ($game_state['current_question_index_in_map'] >= count($game_state['question_ids_for_map'])) {
         $game_state['game_active'] = false; 
-        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], false, $game_state['topic_id'], $map_start_time_iso_for_db);
+        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], false, $game_state['topic_id']);
         close_db_connection($conn);
         header('Location: game.php?stage=game_over' . $redirect_params . '&final_score=' . $game_state['current_score'] . '&message=ran_out_of_questions');
         exit;
@@ -236,20 +234,20 @@ if ($answered_correctly) {
     $game_state['current_lives']--; 
     $_SESSION['show_motivation_popup'] = true; 
     $game_state['current_question_index_in_map']++; 
-    $game_state['consecutive_correct_answers'] = 0; 
-    error_log("Thần Đồng Nhí: Trả lời sai, reset consecutive_correct_answers."); 
+    $game_state['consecutive_correct_answers'] = 0; // Reset chuỗi trả lời đúng khi sai
+    error_log("Thần Đồng Nhí: Trả lời sai, reset consecutive_correct_answers."); // DEBUG
 
 
     if ($game_state['current_lives'] <= 0) {
         $game_state['game_active'] = false; 
-        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], false, $game_state['topic_id'], $map_start_time_iso_for_db);
+        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], false, $game_state['topic_id']);
         close_db_connection($conn);
         header('Location: game.php?stage=game_over' . $redirect_params . '&final_score=' . $game_state['current_score'] . '&reason=no_lives'); 
         exit;
     }
     elseif ($game_state['current_question_index_in_map'] >= count($game_state['question_ids_for_map'])) {
         $game_state['game_active'] = false; 
-        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], false, $game_state['topic_id'], $map_start_time_iso_for_db);
+        record_game_session($conn, $user_id_for_db, $game_state['grade_id'], $game_state['character_id'], $game_state['current_score'], false, $game_state['topic_id']);
         close_db_connection($conn);
         header('Location: game.php?stage=game_over' . $redirect_params . '&final_score=' . $game_state['current_score'] . '&message=ran_out_of_questions_on_wrong');
         exit;

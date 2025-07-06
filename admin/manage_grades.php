@@ -4,8 +4,8 @@ require_once '../config/db_config.php'; // Đi ra một cấp để vào config
 
 // Kiểm tra xem admin đã đăng nhập chưa
 if (!isset($_SESSION['admin_logged_in']) || $_SESSION['admin_logged_in'] !== true) {
-    $_SESSION['login_errors'] = ['general' => "Vui lòng đăng nhập với quyền quản trị để truy cập."]; // Sử dụng key lỗi chung
-    header('Location: ../login.php'); // Chuyển hướng ra trang login.php ở thư mục gốc
+    $_SESSION['admin_login_error'] = "Vui lòng đăng nhập để truy cập trang quản trị.";
+    header('Location: admin_login.php');
     exit;
 }
 

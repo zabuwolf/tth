@@ -4,7 +4,7 @@ require_once 'config/db_config.php';
 
 // Kiểm tra xem người dùng đã đăng nhập chưa
 if (!isset($_SESSION['logged_in']) || $_SESSION['logged_in'] !== true || !isset($_SESSION['user_id'])) {
-    $_SESSION['login_errors'] = ['general' => "Vui lòng đăng nhập để chỉnh sửa hồ sơ của bạn."]; // Sử dụng key lỗi chung
+    $_SESSION['login_error_message'] = "Vui lòng đăng nhập để chỉnh sửa hồ sơ của bạn.";
     header('Location: login.php');
     exit;
 }
@@ -17,9 +17,9 @@ if (!$conn) {
     die("Lỗi hệ thống: Không thể kết nối đến cơ sở dữ liệu. Vui lòng thử lại sau.");
 }
 
-// Lấy thông tin người dùng hiện tại từ CSDL để điền vào form, bao gồm school_name
+// Lấy thông tin người dùng hiện tại từ CSDL để điền vào form
 $current_user_data = null;
-$sql_user = "SELECT fullname, username, email, avatar_url, school_name FROM users WHERE id = ? LIMIT 1"; // Thêm school_name
+$sql_user = "SELECT fullname, username, email, avatar_url FROM users WHERE id = ? LIMIT 1";
 $stmt_user = $conn->prepare($sql_user);
 if ($stmt_user) {
     $stmt_user->bind_param("i", $user_id);
@@ -31,11 +31,13 @@ if ($stmt_user) {
     $stmt_user->close();
 } else {
     error_log("Lỗi chuẩn bị SQL lấy thông tin user (edit_profile): " . $conn->error);
+    // Hiển thị lỗi hoặc chuyển hướng nếu cần
 }
 
 if (!$current_user_data) {
-    $_SESSION['message_profile_edit'] = ['type' => 'error', 'text' => 'Không tìm thấy thông tin tài khoản của bạn.'];
-    header('Location: profile.php'); 
+    // Không tìm thấy người dùng, xử lý lỗi
+    $_SESSION['message_profile'] = ['type' => 'error', 'text' => 'Không tìm thấy thông tin tài khoản của bạn.'];
+    header('Location: profile.php'); // Chuyển về trang profile
     exit;
 }
 
@@ -47,7 +49,6 @@ unset($_SESSION['form_errors_profile_edit'], $_SESSION['old_form_input_profile_e
 // Ưu tiên old_input nếu có, nếu không thì dùng current_user_data
 $display_fullname = htmlspecialchars($old_input['fullname'] ?? ($current_user_data['fullname'] ?? ''));
 $display_avatar_url = htmlspecialchars($old_input['avatar_url'] ?? ($current_user_data['avatar_url'] ?? ''));
-$display_school_name = htmlspecialchars($old_input['school_name'] ?? ($current_user_data['school_name'] ?? '')); // Thêm school_name
 
 // Lấy thông báo thành công/lỗi từ session (nếu có từ process_edit_profile.php)
 $form_message = $_SESSION['message_profile_edit'] ?? null;
@@ -131,22 +132,16 @@ unset($_SESSION['message_profile_edit']);
                 </div>
 
                 <div>
-                    <label for="school_name" class="form-label">Tên trường học (Tùy chọn)</label>
-                    <input type="text" id="school_name" name="school_name" class="form-input" 
-                           value="<?php echo $display_school_name; ?>" placeholder="Ví dụ: Tiểu học Kim Đồng">
-                    <?php if (isset($errors['school_name'])): ?><p class="error-text"><?php echo $errors['school_name']; ?></p><?php endif; ?>
-                </div>
-                <div>
                     <label for="avatar_url" class="form-label">URL Ảnh Đại Diện</label>
                     <input type="text" id="avatar_url" name="avatar_url" class="form-input" 
                            value="<?php echo $display_avatar_url; ?>" placeholder="https://example.com/avatar.png hoặc assets/images/avatar.png">
                     <?php if (isset($errors['avatar_url'])): ?><p class="error-text"><?php echo $errors['avatar_url']; ?></p><?php endif; ?>
-                    <?php 
-                        $avatar_to_preview = !empty($display_avatar_url) ? $display_avatar_url : 'https://placehold.co/100x100/E0E0E0/757575?text=Avatar';
-                        $alt_text_preview = !empty($display_avatar_url) ? "Xem trước avatar" : "Avatar mặc định";
-                    ?>
-                    <img src="<?php echo $avatar_to_preview; ?>" alt="<?php echo $alt_text_preview; ?>" class="avatar-preview" 
-                         onerror="this.src='https://placehold.co/100x100/E0E0E0/757575?text=Ảnh+Lỗi'; this.onerror=null;">
+                    <?php if (!empty($display_avatar_url)): ?>
+                        <img src="<?php echo $display_avatar_url; ?>" alt="Xem trước avatar" class="avatar-preview" 
+                             onerror="this.src='https://placehold.co/100x100/E0E0E0/757575?text=Ảnh+Lỗi'; this.onerror=null;">
+                    <?php else: ?>
+                         <img src="https://placehold.co/100x100/E0E0E0/757575?text=Avatar" alt="Avatar mặc định" class="avatar-preview">
+                    <?php endif; ?>
                      <p class="text-xs text-gray-500 mt-1">Để trống nếu muốn dùng avatar mặc định. Đường dẫn có thể là URL đầy đủ hoặc đường dẫn tương đối từ thư mục gốc của web (ví dụ: assets/images/ten_anh.png).</p>
                 </div>
                 

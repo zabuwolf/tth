@@ -45,13 +45,11 @@ function update_user_points(mysqli $conn, int $user_id, int $points_to_add): boo
  * @param int $score_achieved Điểm số đạt được.
  * @param bool $is_completed Trạng thái hoàn thành màn chơi (True nếu thắng, False nếu thua).
  * @param int|null $topic_id ID của chủ đề (NULL nếu không áp dụng).
- * @param string|null $start_time_iso Thời gian bắt đầu map (định dạng Y-m-d H:i:s). Nếu null, dùng thời điểm hiện tại cho start_time.
  * @return bool True nếu ghi thành công, False nếu thất bại.
  */
-function record_game_session(mysqli $conn, ?int $user_id, int $grade_id, int $character_id, int $score_achieved, bool $is_completed, ?int $topic_id, ?string $start_time_iso): bool {
-    // end_time sẽ luôn là thời điểm hiện tại khi hàm này được gọi
+function record_game_session(mysqli $conn, ?int $user_id, int $grade_id, int $character_id, int $score_achieved, bool $is_completed, ?int $topic_id): bool {
     $sql = "INSERT INTO `game_sessions` (`user_id`, `grade_id`, `topic_id`, `character_id`, `score_achieved`, `is_completed`, `start_time`, `end_time`) 
-            VALUES (?, ?, ?, ?, ?, ?, ?, NOW())"; 
+            VALUES (?, ?, ?, ?, ?, ?, NOW(), NOW())"; 
     
     $stmt = $conn->prepare($sql);
 
@@ -61,10 +59,7 @@ function record_game_session(mysqli $conn, ?int $user_id, int $grade_id, int $ch
     }
     
     $completed_int = (int)$is_completed; 
-    // Nếu $start_time_iso không được cung cấp, sử dụng thời điểm hiện tại cho start_time
-    $actual_start_time_for_db = $start_time_iso ?? date("Y-m-d H:i:s"); 
-
-    $stmt->bind_param("iiiiiss", $user_id, $grade_id, $topic_id, $character_id, $score_achieved, $completed_int, $actual_start_time_for_db);
+    $stmt->bind_param("iiiiis", $user_id, $grade_id, $topic_id, $character_id, $score_achieved, $completed_int);
 
     if (!$stmt->execute()) {
         error_log("Lỗi thực thi SQL (record_game_session): " . $stmt->error . " | UserID: " . ($user_id ?? 'NULL') . ", GradeID: " . $grade_id . ", TopicID: " . ($topic_id ?? 'NULL'));
@@ -114,7 +109,7 @@ function check_and_award_badges(mysqli $conn, int $user_id): array {
 
     // 2. Lấy danh sách tất cả các huy hiệu có thể đạt được bằng điểm,
     //    và loại trừ những huy hiệu người dùng đã có.
-    $sql_badges_to_check = "SELECT b.id, b.name, b.image_url, b.description, b.points_required 
+    $sql_badges_to_check = "SELECT b.id, b.name, b.image_url, b.points_required 
                             FROM badges b
                             LEFT JOIN user_badges ub ON b.id = ub.badge_id AND ub.user_id = ?
                             WHERE b.points_required > 0 AND ub.badge_id IS NULL"; // Chỉ lấy huy hiệu chưa có
@@ -139,7 +134,7 @@ function check_and_award_badges(mysqli $conn, int $user_id): array {
                 $stmt_award->bind_param("ii", $user_id, $badge['id']);
                 if ($stmt_award->execute()) {
                     if ($stmt_award->affected_rows > 0) { // Chỉ thêm vào nếu insert mới thành công
-                        $newly_awarded_badges[] = $badge;
+                        $newly_awarded_badges[] = $badge; // Thêm huy hiệu vào danh sách mới nhận
                     }
                 } else {
                     error_log("Lỗi thực thi SQL trao huy hiệu (ID: {$badge['id']}) cho user (ID: {$user_id}): " . $stmt_award->error);
